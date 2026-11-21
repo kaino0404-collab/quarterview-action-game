@@ -515,7 +515,7 @@ local function throwGrenade(p)
 end
 
 -- 맨손: 잽·잽·스트레이트. 스트레이트에 맞은 적은 날아가서 다른 적과 부딪힌다 (launchEnemy)
--- 주먹은 한 놈만 팬다: 매 주먹이 노린 적 하나에게만 들어가고, 같은 적을 계속 때리면 연타가 쌓여 세진다
+-- 주먹: 앞쪽 좁은 부채꼴 안의 적을 모두 친다. 같은 적을 계속 때리면 그 적에게 연타가 쌓여 세진다
 local launchEnemy
 local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 약 4m 날아간다)
 local function inPunchReach(p, e, dir, range, half)
@@ -535,36 +535,46 @@ local function punchTarget(p, dir, range, half)
   end
   return best
 end
+-- 주먹 범위: 칼(사거리 1.75, 반각 1.05 = 약 120도)보다 짧고 좁은 앞쪽 부채꼴. 그 안의 적은 모두 맞는다
+local PUNCH_R, PUNCH_HALF = 1.3, .5          -- 잽: 사거리 1.3m, 반각 .5 (약 57도)
+local STRAIGHT_R, STRAIGHT_HALF = 1.5, .55   -- 스트레이트: 1.5m, 반각 .55 (약 63도)
 local function punchHit(p, s)
   local straight = s.n == 3
-  local e = punchTarget(p, s.dir, straight and 1.45 or 1.3, straight and .8 or .75)
-  if not e then return end
-  -- 연타 쌓기 (같은 적, 1.2초 안)
-  if p.focus == e and gameTime - p.focusT < 1.2 then p.focusN = min(8, p.focusN + 1) else p.focus, p.focusN = e, 1 end
+  local R, HALF = straight and STRAIGHT_R or PUNCH_R, straight and STRAIGHT_HALF or PUNCH_HALF
+  -- 연타는 '주로 때리는 놈'(때리던 놈 또는 가장 가까운 놈) 기준으로 쌓인다
+  local main = punchTarget(p, s.dir, R, HALF)
+  if not main then return end
+  if p.focus == main and gameTime - p.focusT < 1.2 then p.focusN = min(8, p.focusN + 1) else p.focus, p.focusN = main, 1 end
   p.focusT = gameTime
   local mul = 1 + (p.focusN - 1) * .1
-  local dx, dy = e.x - p.x, e.y - p.y
-  local d = len(dx, dy)
-  local nx, ny = norm(dx * .4 + cos(s.dir) * d * .6, dy * .4 + sin(s.dir) * d * .6)   -- 주먹 방향 쪽으로
-  if straight then
-    e.lastKb = 13                                    -- 죽으면 날아간다 (예전 24 → 13)
-    hitEnemy(e, 18 * mul, nx, ny, 0, 11, p.focusN >= 4)
-    launchEnemy(e, nx, ny, 10.5 + p.focusN * .6)     -- 날아간 몸이 다른 적들과 부딪힌다 (예전 17 + 연타 → 줄임)
-    p.focus = nil
-    addShake(.3)
-  else
-    hitEnemy(e, 8 * mul, nx, ny, 2, 5)
-    if not e.dead then e.stun = max(e.stun, .32) end -- 잽은 짧게 묶어 둔다
+  local victims = { main }
+  for _, e in ipairs(enemies) do
+    if e ~= main and inPunchReach(p, e, s.dir, R, HALF) then victims[#victims + 1] = e end
   end
-  if p.focusN >= 3 then addText(e.x, e.y + .1, p.focusN .. "연타", { 1, .8, .4 }) end
-  fx[#fx + 1] = { kind = "pow", x = e.x - nx * e.r, y = e.y - ny * e.r, z = 1.3, t = 0, dur = straight and .16 or .1, big = straight }
+  for _, e in ipairs(victims) do
+    local m = (e == main) and mul or 1                -- 연타 보너스는 주로 때리는 놈만
+    local dx, dy = e.x - p.x, e.y - p.y
+    local d = len(dx, dy)
+    local nx, ny = norm(dx * .4 + cos(s.dir) * d * .6, dy * .4 + sin(s.dir) * d * .6)   -- 주먹 방향 쪽으로
+    if straight then
+      e.lastKb = 13
+      hitEnemy(e, 18 * m, nx, ny, 0, 11, e == main and p.focusN >= 4)
+      launchEnemy(e, nx, ny, 10.5 + ((e == main) and p.focusN * .6 or 0))
+    else
+      hitEnemy(e, 8 * m, nx, ny, 2, 5)
+      if not e.dead then e.stun = max(e.stun, .32) end -- 잽은 짧게 묶어 둔다
+    end
+    fx[#fx + 1] = { kind = "pow", x = e.x - nx * e.r, y = e.y - ny * e.r, z = 1.3, t = 0, dur = straight and .16 or .1, big = straight }
+  end
+  if p.focusN >= 3 then addText(main.x, main.y + .1, p.focusN .. "연타", { 1, .8, .4 }) end
+  if straight then p.focus = nil; addShake(.3) end
 end
 
 STYLES = {
   -- 1 맨손 -----------------------------------------------------------------
   {
     id = "fist", name = "맨손", tag = "권법 · 기본기", hp = 110, speed = 5.4,
-    desc = { "좌클릭  잽 · 잽 · 스트레이트 — 한 놈만 팬다", "같은 적을 계속 때리면 연타가 쌓여 세진다", "스트레이트로 날린 적이 다른 적과 부딪히고 벽에 박힌다", "우클릭  슈퍼맨 펀치 — 앞으로 쭉 날아가며 주먹을 꽂는다" },
+    desc = { "좌클릭  잽 · 잽 · 스트레이트 — 앞쪽 좁은 범위", "같은 적을 계속 때리면 연타가 쌓여 세진다", "스트레이트로 날린 적이 다른 적과 부딪히고 벽에 박힌다", "우클릭  슈퍼맨 펀치 — 앞으로 쭉 날아가며 주먹을 꽂는다" },
     update = function(p, dt)
       -- 슈퍼맨 펀치: 앞으로 쭉 뛰어들며 주먹을 내지른다. 처음 닿는 한 놈에게 꽂고 그놈을 날린다
       if p.kk then
@@ -650,6 +660,9 @@ STYLES = {
         o.handR, o.handCol = 10, { .86, .78, .62 }
         o.rh = { chF + 6, 6, chU + 62 }            -- 머리 위 = 날아가는 앞쪽
         o.lh = { chF - 6, -24, hipU + 4 }          -- 몸 옆으로 붙임 = 뒤쪽
+        -- 왼다리는 무릎을 굽혀 멋을 낸다: 무릎은 아래(몸 기준 앞)로, 발끝은 위(몸 기준 뒤)로 접힌다
+        -- 오른다리는 뒤로 쭉 뻗는다
+        o.legs = { [-1] = { 30, hipU - 34, -4, hipU - 58 }, [1] = { 4, hipU * .5, 2, 4 } }
         o.face = p.face
         return
       end
@@ -1970,7 +1983,7 @@ local function poseFor(p, o)
   if p.beaming or p.gcast > 0 then o.face = p.face end      -- 광선은 부드럽게 돈다
   o.walk, o.moving = p.walk, p.moving
   o.crouch, o.lean, o.tuck, o.kick, o.fall = 0, p.moving and .1 or 0, false, nil, 0
-  o.rh, o.lh, o.wdir, o.sdir, o.trail = nil, nil, { 1, 0, 0 }, { 1, 0, 0 }, nil
+  o.rh, o.lh, o.wdir, o.sdir, o.trail, o.legs = nil, nil, { 1, 0, 0 }, { 1, 0, 0 }, nil, nil
   o.pull, o.nock, o.nockPower, o.orb, o.wglow, o.gunGlow, o.blockFlash, o.noGrenade = nil, nil, nil, nil, nil, nil, nil, nil
   o.col, o.col2, o.visor, o.mark = PCOL, PCOL2, VISOR, nil
   o.accent = ACCENT[p.style.id]

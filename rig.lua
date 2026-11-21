@@ -368,6 +368,11 @@ function R.human(o)
       local k = o.kick
       ff, fu, kf, ku = 20 + 38 * k, 8 + 40 * k, 30 + 10 * k, hipU - 20 + 10 * k
     end
+    -- 다리 하나를 직접 지정 {무릎 f, 무릎 u, 발 f, 발 u} (슈퍼맨 펀치의 굽힌 다리 등)
+    if o.legs and o.legs[side] then
+      local L = o.legs[side]
+      kf, ku, ff, fu = L[1], L[2], L[3], L[4]
+    end
     local far = side * camS < 0
     add(D(kf * .6, hs, ku), function()
       limb(far and colD or col, 12, { 0, hs, hipU, kf, hs * 1.05, ku, ff, hs, fu + 6 })
