@@ -2353,7 +2353,7 @@ local function drawHUD()
   lg.setColor(1, 1, 1); txt(floor(p.hp) .. " / " .. p.maxhp, bx, H - 32, fontS, "center", bw)
   cdIcon(W - 150, H - 82, "Spc", "덤블링", max(0, p.dashCd) / .7)
   if st.cdMax then cdIcon(W - 80, H - 82, "우", st.rName, p.cdR / st.cdMax) end
-  lg.setColor(.7, .7, .7); txt("1~" .. #STYLES .. " 캐릭터 교체 (싸우는 중 바로)   Tab 목록   Esc 일시정지", W - 420, 10, fontS, "right", 408)
+  lg.setColor(.7, .7, .7); txt("1~" .. #STYLES .. " 캐릭터 교체   Tab 목록   R 체력 채우기(개발자)   Esc 일시정지", W - 460, 10, fontS, "right", 448)
   -- 지금 캐릭터 표시
   for i, s2 in ipairs(STYLES) do
     local x = W - #STYLES * 34 - 12 + (i - 1) * 34
@@ -2591,6 +2591,12 @@ function love.keypressed(k)
     if n and STYLES[n] then
       if n ~= styleIdx then switchStyle(n) end    -- 싸우는 중에 숫자키로 바로 교체
     elseif k == "space" then doDash(player)
+    elseif k == "r" then
+      -- 개발자용: 체력 가득 채우기
+      player.hp = player.maxhp
+      addText(player.x, player.y, "체력 회복 (개발자)", { .4, 1, .5 }, true)
+      burst(player.x, player.y, 1, 12, { .4, 1, .5 }, 2.5, 3, .5)
+      play("pick", .1)
     elseif k == "escape" then
       if player.targeting then player.targeting = false else state = "pause" end
     end
