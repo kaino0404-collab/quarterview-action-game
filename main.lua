@@ -517,7 +517,7 @@ end
 -- 맨손: 잽·잽·스트레이트. 스트레이트에 맞은 적은 날아가서 다른 적과 부딪힌다 (launchEnemy)
 -- 주먹은 한 놈만 팬다: 매 주먹이 노린 적 하나에게만 들어가고, 같은 적을 계속 때리면 연타가 쌓여 세진다
 local launchEnemy
-local KICK_R, KICK_HALF = 2.1, 1.05     -- 돌려차기 사거리(m), 부채꼴 반각(라디안, 약 60도 → 전체 120도)
+local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 약 4m 날아간다)
 local function inPunchReach(p, e, dir, range, half)
   if e.dead or e.fly then return false end
   local dx, dy = e.x - p.x, e.y - p.y
@@ -564,36 +564,43 @@ STYLES = {
   -- 1 맨손 -----------------------------------------------------------------
   {
     id = "fist", name = "맨손", tag = "권법 · 기본기", hp = 110, speed = 5.4,
-    desc = { "좌클릭  잽 · 잽 · 스트레이트 — 한 놈만 팬다", "같은 적을 계속 때리면 연타가 쌓여 세진다", "스트레이트로 날린 적이 다른 적과 부딪히고 벽에 박힌다", "우클릭  돌려차기 — 바로 앞쪽 부채꼴을 쓸어 찬다" },
+    desc = { "좌클릭  잽 · 잽 · 스트레이트 — 한 놈만 팬다", "같은 적을 계속 때리면 연타가 쌓여 세진다", "스트레이트로 날린 적이 다른 적과 부딪히고 벽에 박힌다", "우클릭  슈퍼맨 펀치 — 앞으로 쭉 날아가며 주먹을 꽂는다" },
     update = function(p, dt)
-      -- 돌려차기: 누르면 바로, 다리를 오른쪽에서 왼쪽으로 휘둘러 앞쪽 부채꼴을 찬다
+      -- 슈퍼맨 펀치: 앞으로 쭉 뛰어들며 주먹을 내지른다. 처음 닿는 한 놈에게 꽂고 그놈을 날린다
       if p.kk then
         local k = p.kk
         k.t = k.t + dt
         local q = min(1, k.t / k.dur)
-        local e2 = 1 - (1 - q) ^ 2
-        p.face = k.face0 + KICK_HALF - e2 * KICK_HALF * 2      -- 몸이 돌며 다리가 부채꼴을 쓴다
-        if not k.hit and q >= .3 then
-          k.hit = true
-          local n = 0
+        local sp = SUPER_SPEED * (1 - q * .55)                 -- 처음엔 빠르게, 끝에 느려진다
+        p.x, p.y = p.x + cos(k.dir) * sp * dt, p.y + sin(k.dir) * sp * dt
+        p.z = sin(q * pi) * .35                                -- 살짝 떠서 날아간다
+        p.face = k.dir
+        if rnd() < .7 then burst(p.x, p.y, .3, 1, { .6, .56, .42 }, 1.5, 3, .3) end
+        if not k.hit then
+          -- 앞쪽 주먹 끝에 닿는 가장 가까운 적 하나
+          local fx0, fy0 = p.x + cos(k.dir) * .7, p.y + sin(k.dir) * .7
+          local best, bd = nil, 1e9
           for _, e in ipairs(enemies) do
             if not e.dead and not e.fly then
-              local dx, dy = e.x - p.x, e.y - p.y
-              local d = len(dx, dy)
-              if d < KICK_R + e.r and (d < .5 or abs(angDiff(atan2(dy, dx), k.face0)) < KICK_HALF) then
-                local nx, ny = norm(dx, dy)
-                e.lastKb = 9
-                hitEnemy(e, 17, nx, ny, 9, 9)
-                n = n + 1
-              end
+              local d = len(e.x - fx0, e.y - fy0)
+              if d < e.r + .55 and d < bd then best, bd = e, d end
             end
           end
-          fx[#fx + 1] = { kind = "fan", x = p.x, y = p.y, r = KICK_R + .2, a = k.face0, half = KICK_HALF, t = 0, dur = .25 }
-          burst(p.x + cos(k.face0) * 1.2, p.y + sin(k.face0) * 1.2, .2, 10, { .6, .56, .42 }, 4, 3, .4)
-          addShake(n > 0 and .3 or .12)
-          play("heavy", .15, .9)
+          if best then
+            k.hit = true
+            local e = best
+            if p.focus == e and gameTime - p.focusT < 1.2 then p.focusN = min(8, p.focusN + 1) else p.focus, p.focusN = e, 1 end
+            p.focusT = gameTime
+            local nx, ny = norm(cos(k.dir) * .7 + (e.x - p.x) * .3, sin(k.dir) * .7 + (e.y - p.y) * .3)
+            e.lastKb = 13
+            hitEnemy(e, 22 * (1 + (p.focusN - 1) * .1), nx, ny, 0, 11, true)
+            launchEnemy(e, nx, ny, 12 + p.focusN * .6)
+            fx[#fx + 1] = { kind = "pow", x = e.x - nx * e.r, y = e.y - ny * e.r, z = 1.4, t = 0, dur = .18, big = true }
+            addShake(.35)
+            k.t = max(k.t, k.dur * .75)                        -- 꽂히면 그 자리에서 멈춰 선다
+          end
         end
-        if q >= 1 then p.face = k.face0; p.kk = nil end
+        if k.t >= k.dur then p.kk = nil; p.z = 0 end
       end
       if p.pu then
         local s = p.pu
@@ -626,26 +633,29 @@ STYLES = {
     end,
     press = function(p, b)
       if b == 2 and p.cdR <= 0 and canAct(p) and not p.kk and not p.pu then
-        p.kk = { t = 0, dur = .28, face0 = autoTarget(p, p.aim, KICK_R + .5, KICK_HALF) }   -- 바로 나간다
+        p.kk = { t = 0, dur = .34, dir = autoTarget(p, p.aim, 5, .45) }   -- 바로 뛰어든다
         p.cdR = 3
-        p.kx, p.ky = p.kx + cos(p.kk.face0) * 3, p.ky + sin(p.kk.face0) * 3
-        play("swing", .15, 1)
+        p.inv = max(p.inv, .15)
+        play("dash", .1, 1); play("swing", .15, 1)
       end
     end,
     speedMul = function(p)
-      if p.kk then return .3 end
+      if p.kk then return 0 end                -- 날아가는 중엔 이동키 무시 (펀치가 직접 움직인다)
       return p.pu and .5 or 1
     end,
-    cdMax = 3, rName = "돌려차기",
+    cdMax = 3, rName = "슈퍼맨 펀치",
     pose = function(p, o)
       if p.kk then
-        -- 다리를 뻗어 부채꼴로 휘두른다 (몸도 같이 돈다)
-        local hipU, chF, chU = Rig.body(0, -.28)
+        -- 몸을 앞으로 길게 뻗고, 오른 주먹은 앞으로 쭉, 왼팔은 뒤로, 다리는 앞뒤로 벌린다
+        local q = min(1, p.kk.t / p.kk.dur)
+        o.crouch, o.lean = 4, .62
+        local hipU, chF, chU = Rig.body(4, .62)
         o.handR, o.handCol = 10, { .86, .78, .62 }
-        o.crouch, o.lean = 0, -.28
-        o.kick = sin(min(1, p.kk.t / p.kk.dur * 1.6) * pi * .5)
+        local reach = q < .25 and q / .25 or 1
+        o.rh = { chF + 20 + 46 * reach, 4, chU + 2 }
+        o.lh = { chF - 26, -20, chU - 14 }
+        o.moving, o.walk = true, pi * .5           -- 다리 앞뒤로 벌림 (걷기 위상 고정)
         o.face = p.face
-        o.rh, o.lh = { chF - 6, 30, chU - 10 }, { chF + 6, -30, chU - 4 }
         return
       end
       if p.pu then
@@ -1141,6 +1151,7 @@ local function updatePlayer(dt)
   local k = max(0, 1 - dt * 9)
   p.kx, p.ky = p.kx * k, p.ky * k
   if not p.vault then collide(p, 0) end
+  if not p.vault and not p.kk then p.z = 0 end      -- 슈퍼맨 펀치가 끊겨도 땅으로
 
   st.update(p, dt)
 
@@ -2003,7 +2014,7 @@ local function drawPlayer(alphaMul)
     lg.translate(0, -cy)
   end
   local al = (alphaMul or 1)
-  if p.inv > 0 and not p.dash and not p.vault and floor(realTime * 20) % 2 == 0 then al = al * .4 end
+  if p.inv > 0 and not p.dash and not p.vault and not p.kk and floor(realTime * 20) % 2 == 0 then al = al * .4 end
   Rig.withAlpha(al, Rig.human, o)
   lg.pop()
 end
@@ -2465,7 +2476,7 @@ local function autoStep(dt)
   if id == "fist" then
     A.mouse[1] = bd < 2.0
     if bd < 2 and rnd() < .03 then pressBtn(2) end
-    if player.kk and player.kk.t > .09 and not A.kickShot then A.kickShot = true; lg.captureScreenshot("auto_fist_kick.png") end
+    if player.kk and player.kk.t > .1 and not A.kickShot then A.kickShot = true; lg.captureScreenshot("auto_fist_kick.png") end
   elseif id == "blade" or id == "guard" then A.mouse[1] = bd < 2.4
   elseif id == "archer" then A.mouse[1] = (A.t * 1.3) % 1 < .75
   elseif id == "bomber" then A.mouse[1] = (A.t * .9) % 1 < .5
