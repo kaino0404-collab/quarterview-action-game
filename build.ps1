@@ -1,12 +1,21 @@
 ﻿# 쿼터뷰액션.exe 만들기: *.lua 를 묶어서 love.exe 뒤에 붙이고 필요한 dll 을 복사한다
 # 사용: powershell -ExecutionPolicy Bypass -File build.ps1
-# 게임이 켜져 있으면 exe 를 덮어쓸 수 없으므로 "쿼터뷰액션_새버전.exe" 로 따로 만든다 (언제든 바로 빌드)
+# 게임이 켜져 있으면 강제로 끄고 빌드한다 (유저 요청: 새버전 파일 따로 만들지 말 것)
 $ErrorActionPreference = "Stop"
 $src  = $PSScriptRoot
 $dst  = Join-Path $src "실행파일"
 $love = "C:\Program Files\LOVE"
 $name = "쿼터뷰액션"
 New-Item -ItemType Directory -Force $dst | Out-Null
+
+# 켜져 있는 게임(예전 _새버전 포함)을 강제로 끈다
+$procs = @(Get-Process -Name $name, ($name + "_새버전") -ErrorAction SilentlyContinue)
+if ($procs.Count -gt 0) {
+  $procs | Stop-Process -Force
+  $procs | ForEach-Object { try { $_.WaitForExit(3000) | Out-Null } catch {} }
+  Start-Sleep -Milliseconds 300
+  Write-Output "켜져 있던 게임을 강제로 껐음"
+}
 
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -22,23 +31,16 @@ Get-ChildItem $src -Filter *.lua -File | ForEach-Object { AddFile $_.FullName $_
 $arc.Dispose(); $fs.Dispose()
 $bytes = [IO.File]::ReadAllBytes((Join-Path $love "love.exe")) + [IO.File]::ReadAllBytes($zip)
 
+# 파일 잠금이 늦게 풀릴 수 있어서 몇 번 다시 시도
 $main = Join-Path $dst "$name.exe"
-$alt  = Join-Path $dst ($name + "_새버전.exe")
-$running = Get-Process -Name $name -ErrorAction SilentlyContinue
-$out = $main
-if ($running) { $out = $alt }
-else {
-  try { [IO.File]::WriteAllBytes($main, $bytes) } catch { $out = $alt }
+$ok = $false
+for ($i = 0; $i -lt 10 -and -not $ok; $i++) {
+  try { [IO.File]::WriteAllBytes($main, $bytes); $ok = $true } catch { Start-Sleep -Milliseconds 300 }
 }
-if ($out -eq $alt) { [IO.File]::WriteAllBytes($alt, $bytes) }
-elseif (Test-Path $alt) { Remove-Item $alt -Force -ErrorAction SilentlyContinue }   # 예전 새버전은 정리
+if (-not $ok) { Write-Output "실패: $main 을 쓸 수 없음"; exit 1 }
+$alt = Join-Path $dst ($name + "_새버전.exe")
+if (Test-Path $alt) { Remove-Item $alt -Force -ErrorAction SilentlyContinue }   # 예전 방식의 새버전 파일 정리
 
-# dll: 없을 때만 복사 (게임이 켜져 있으면 잠겨 있으니 건너뜀)
-Get-ChildItem $love -Filter *.dll | ForEach-Object {
-  $t = Join-Path $dst $_.Name
-  if (-not (Test-Path $t)) { Copy-Item $_.FullName $t }
-}
-if (-not (Test-Path (Join-Path $dst "license.txt"))) { Copy-Item (Join-Path $love "license.txt") $dst }
-
-if ($out -eq $alt) { Write-Output "게임이 켜져 있어서 새 버전을 따로 만듦 → $alt" }
-else { Write-Output "$name.exe 만듦 → $dst" }
+Get-ChildItem $love -Filter *.dll | Copy-Item -Destination $dst -Force
+Copy-Item (Join-Path $love "license.txt") $dst -Force
+Write-Output "$name.exe 만듦 → $dst"

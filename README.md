@@ -12,7 +12,7 @@
 1. LÖVE 11.x 설치 (Windows 기본 경로 `C:\Program Files\LOVE`)
 2. 이 폴더를 실행: `"C:\Program Files\LOVE\love.exe" .`
 3. exe 만들기: `powershell -ExecutionPolicy Bypass -File build.ps1` → `실행파일\쿼터뷰액션.exe`
-   (게임이 켜져 있으면 덮어쓸 수 없어서 `실행파일\쿼터뷰액션_새버전.exe` 로 따로 만듭니다)
+   (게임이 켜져 있으면 강제로 끄고 빌드합니다 — 실행 파일은 `쿼터뷰액션.exe` 하나)
 
 자동 테스트(가짜 입력으로 한 스타일을 40초 플레이, 스크린샷 저장. 기본은 맨손, `--style=2` 면 검사, `--autotest-all` 이면 7개 스타일 25초씩):
 `"C:\Program Files\LOVE\lovec.exe" . --autotest`
