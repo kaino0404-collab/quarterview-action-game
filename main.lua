@@ -571,33 +571,28 @@ STYLES = {
         local k = p.kk
         k.t = k.t + dt
         local q = min(1, k.t / k.dur)
-        local sp = SUPER_SPEED * (1 - q * .55)                 -- 처음엔 빠르게, 끝에 느려진다
+        local sp = SUPER_SPEED * (1 - q * .4)                  -- 끝까지 거의 같은 속도로 뚫고 나간다
         p.x, p.y = p.x + cos(k.dir) * sp * dt, p.y + sin(k.dir) * sp * dt
-        p.z = sin(q * pi) * .35                                -- 살짝 떠서 날아간다
+        p.z = .45 + sin(q * pi) * .3                           -- 떠서 날아간다
         p.face = k.dir
-        if rnd() < .7 then burst(p.x, p.y, .3, 1, { .6, .56, .42 }, 1.5, 3, .3) end
-        if not k.hit then
-          -- 앞쪽 주먹 끝에 닿는 가장 가까운 적 하나
-          local fx0, fy0 = p.x + cos(k.dir) * .7, p.y + sin(k.dir) * .7
-          local best, bd = nil, 1e9
-          for _, e in ipairs(enemies) do
-            if not e.dead and not e.fly then
-              local d = len(e.x - fx0, e.y - fy0)
-              if d < e.r + .55 and d < bd then best, bd = e, d end
+        if rnd() < .8 then burst(p.x, p.y, .4, 1, { .9, .9, .85 }, 1, 2.5, .25, 0) end
+        -- 뚫고 나가는 펀치: 지나가는 길의 적을 모두 한 번씩 치고, 양옆으로 튕겨낸다 (멈추지 않음)
+        local dx0, dy0 = cos(k.dir), sin(k.dir)
+        for _, e in ipairs(enemies) do
+          if not e.dead and not e.fly and not k.hits[e] then
+            local ex, ey = e.x - p.x, e.y - p.y
+            local along = ex * dx0 + ey * dy0
+            local side = ex * -dy0 + ey * dx0
+            if along > -.3 and along < 1.0 + e.r and abs(side) < e.r + .45 then
+              k.hits[e] = true
+              local sgn = side >= 0 and 1 or -1
+              local nx, ny = norm(dx0 * .65 - dy0 * sgn * .75, dy0 * .65 + dx0 * sgn * .75)
+              e.lastKb = 12
+              hitEnemy(e, 20, nx, ny, 0, 6, true)
+              launchEnemy(e, nx, ny, 11)
+              fx[#fx + 1] = { kind = "pow", x = e.x - nx * e.r, y = e.y - ny * e.r, z = 1.1, t = 0, dur = .16, big = true }
+              addShake(.25)
             end
-          end
-          if best then
-            k.hit = true
-            local e = best
-            if p.focus == e and gameTime - p.focusT < 1.2 then p.focusN = min(8, p.focusN + 1) else p.focus, p.focusN = e, 1 end
-            p.focusT = gameTime
-            local nx, ny = norm(cos(k.dir) * .7 + (e.x - p.x) * .3, sin(k.dir) * .7 + (e.y - p.y) * .3)
-            e.lastKb = 13
-            hitEnemy(e, 22 * (1 + (p.focusN - 1) * .1), nx, ny, 0, 11, true)
-            launchEnemy(e, nx, ny, 12 + p.focusN * .6)
-            fx[#fx + 1] = { kind = "pow", x = e.x - nx * e.r, y = e.y - ny * e.r, z = 1.4, t = 0, dur = .18, big = true }
-            addShake(.35)
-            k.t = max(k.t, k.dur * .75)                        -- 꽂히면 그 자리에서 멈춰 선다
           end
         end
         if k.t >= k.dur then p.kk = nil; p.z = 0 end
@@ -633,7 +628,7 @@ STYLES = {
     end,
     press = function(p, b)
       if b == 2 and p.cdR <= 0 and canAct(p) and not p.kk and not p.pu then
-        p.kk = { t = 0, dur = .34, dir = autoTarget(p, p.aim, 5, .45) }   -- 바로 뛰어든다
+        p.kk = { t = 0, dur = .36, dir = autoTarget(p, p.aim, 5, .45), hits = {} }   -- 바로 뛰어든다
         p.cdR = 3
         p.inv = max(p.inv, .15)
         play("dash", .1, 1); play("swing", .15, 1)
@@ -646,15 +641,15 @@ STYLES = {
     cdMax = 3, rName = "슈퍼맨 펀치",
     pose = function(p, o)
       if p.kk then
-        -- 몸을 앞으로 길게 뻗고, 오른 주먹은 앞으로 쭉, 왼팔은 뒤로, 다리는 앞뒤로 벌린다
+        -- 슈퍼맨처럼: 몸을 수평으로 눕혀 날아가고, 오른 주먹은 앞으로 쭉, 왼팔과 다리는 뒤로 뻗는다
+        -- (선 자세에서 '위'로 뻗은 팔이 몸을 앞으로 눕히면 '앞'이 된다)
         local q = min(1, p.kk.t / p.kk.dur)
-        o.crouch, o.lean = 4, .62
-        local hipU, chF, chU = Rig.body(4, .62)
+        o.crouch, o.lean, o.moving = 0, 0, false
+        o.fall = -(.55 + .37 * min(1, q * 4))     -- 앞으로 거의 수평까지 눕힘
+        local hipU, chF, chU = Rig.body(0, 0)
         o.handR, o.handCol = 10, { .86, .78, .62 }
-        local reach = q < .25 and q / .25 or 1
-        o.rh = { chF + 20 + 46 * reach, 4, chU + 2 }
-        o.lh = { chF - 26, -20, chU - 14 }
-        o.moving, o.walk = true, pi * .5           -- 다리 앞뒤로 벌림 (걷기 위상 고정)
+        o.rh = { chF + 6, 6, chU + 62 }            -- 머리 위 = 날아가는 앞쪽
+        o.lh = { chF - 6, -24, hipU + 4 }          -- 몸 옆으로 붙임 = 뒤쪽
         o.face = p.face
         return
       end
@@ -2000,6 +1995,11 @@ local function drawPlayer(alphaMul)
   local o = heroO
   poseFor(p, o)
   local sx, sy = proj(p.x, p.y, p.z)
+  if p.kk then
+    -- 슈퍼맨 펀치: 발끝을 축으로 눕히므로, 몸 가운데가 제자리에 오도록 뒤로 옮긴다
+    local bx, by = proj(p.x - cos(p.face) * .85, p.y - sin(p.face) * .85, p.z)
+    sx, sy = bx, by
+  end
   lg.push()
   lg.translate(sx, sy)
   lg.scale(CS)
