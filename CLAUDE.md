@@ -34,5 +34,5 @@
   - 팔다리는 마디별로 따로 그린다 (이어 그리면 화면에서 접히는 각도일 때 꺾임 처리가 긴 가시로 튀어나오는 버그가 있었음).
 - 스타일은 `main.lua` 의 `STYLES` 표: `update / press / speedMul / pose / gauge / cdMax / rName`.
 - 적 날아가기: `launchEnemy` → `updateFlying` → `bowl`(다른 적과 충돌 연쇄), 벽에 박히면 벽꽝.
-- 바꾼 뒤엔 `lovec.exe . --autotest` 로 자동 테스트를 돌려 오류가 없는지 확인하고, 필요하면 스크린샷(`%APPDATA%\LOVE\quarterview\auto_*.png`)을 본다. 그다음 `build.ps1` 로 exe.
+- 바꾼 뒤엔 `lovec.exe . --autotest` 로 자동 테스트를 (기본은 **지금 작업 중인 맨손만** — 유저 요청: "테스트할 때 다른 무기는 하지 마". 전부 돌릴 땐 `--autotest-all`) 돌려 오류가 없는지 확인하고, 필요하면 스크린샷(`%APPDATA%\LOVE\quarterview\auto_*.png`)을 본다. 그다음 `build.ps1` 로 exe.
 - PowerShell 5.1 은 BOM 없는 UTF-8 .ps1 의 한글을 깨뜨린다 → .ps1 은 BOM 있는 UTF-8 로 저장.

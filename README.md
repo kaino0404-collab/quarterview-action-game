@@ -14,7 +14,7 @@
 3. exe 만들기: `powershell -ExecutionPolicy Bypass -File build.ps1` → `실행파일\쿼터뷰액션.exe`
    (exe 가 켜져 있으면 빌드가 막힙니다 — 창을 닫고 다시)
 
-자동 테스트(가짜 입력으로 7개 스타일을 25초씩 플레이, 스크린샷 저장):
+자동 테스트(가짜 입력으로 맨손을 40초 플레이, 스크린샷 저장. `--autotest-all` 이면 7개 스타일 25초씩):
 `"C:\Program Files\LOVE\lovec.exe" . --autotest`
 → 콘솔에 결과, 스크린샷은 `%APPDATA%\LOVE\quarterview\auto_*.png`
 

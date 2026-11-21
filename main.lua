@@ -2426,8 +2426,13 @@ local function pressBtn(b)
 end
 
 function love.load(args)
+  -- --autotest      : 지금 작업 중인 맨손만 40초
+  -- --autotest-all  : 7개 스타일 모두 25초씩
   for _, a in ipairs(args or {}) do
-    if a == "--autotest" then AUTO = { t = 0, keys = {}, mouse = {}, ax = 0, ay = 0, dirT = 0, deaths = 0, styleT = 0, kills = {} } end
+    if a == "--autotest" or a == "--autotest-all" then
+      AUTO = { t = 0, keys = {}, mouse = {}, ax = 0, ay = 0, dirT = 0, deaths = 0, styleT = 0, kills = {},
+        all = a == "--autotest-all", perStyle = (a == "--autotest-all") and 25 or 40 }
+    end
   end
   io.stdout:setvbuf("no")
   lg.setDefaultFilter("linear", "linear")
@@ -2447,10 +2452,10 @@ function love.resize() updateView(); makeFonts() end
 local function autoStep(dt)
   local A = AUTO
   A.t, A.styleT = A.t + dt, A.styleT + dt
-  if A.styleT > 25 then
+  if A.styleT > A.perStyle then
     A.kills[#A.kills + 1] = STYLES[styleIdx].name .. " " .. kills .. "처치/웨이브" .. wave
     A.styleT = 0
-    if styleIdx >= #STYLES then
+    if styleIdx >= #STYLES or not A.all then
       print("[자동테스트] 완료: " .. table.concat(A.kills, ", ") .. " / 사망 " .. A.deaths)
       print(string.format("[자동테스트] 날아간 적끼리 부딪힘 %d번, 벽꽝 %d번", A.bowls or 0, A.walls or 0))
       love.event.quit()
