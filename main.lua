@@ -407,11 +407,13 @@ local function hurtPlayer(dmg, sx, sy, kb, attacker, isProj)
 end
 
 -- 플레이어가 적을 때린다
+local HIT_FLINCH = .2                  -- 맞았을 때 상체 움찔 시간 (초)
 local function hitEnemy(e, dmg, dx, dy, kb, stop, crit)
   if e.dead then return end
   dmg = dmg * (.9 + rnd() * .2)
   e.hp = e.hp - dmg
   e.flash, e.hpShow = .1, 2.5
+  e.hitT = HIT_FLINCH                  -- 맞을 때마다 상체가 움찔 (다시 맞으면 처음부터 다시)
   local T = e.T
   e.kx, e.ky = e.kx + dx * kb / T.mass, e.ky + dy * kb / T.mass
   e.lastDx, e.lastDy, e.lastKb = dx, dy, kb
@@ -561,7 +563,7 @@ local function punchHit(p, s)
       hitEnemy(e, 18 * m, nx, ny, 0, 11, e == main and p.focusN >= 4)
       launchEnemy(e, nx, ny, 10.5 + ((e == main) and p.focusN * .6 or 0))
     else
-      hitEnemy(e, 8 * m, nx, ny, 2, 5)
+      hitEnemy(e, 8 * m, nx, ny, 2, 0)                  -- 잽은 히트스톱 없음 (예전 5프레임)
       if not e.dead then e.stun = max(e.stun, .32) end -- 잽은 짧게 묶어 둔다
     end
     fx[#fx + 1] = { kind = "pow", x = e.x - nx * e.r, y = e.y - ny * e.r, z = 1.3, t = 0, dur = straight and .16 or .1, big = straight }
@@ -1271,6 +1273,7 @@ local function updateFlying(e, dt)
   local f = e.fly
   f.t = f.t + dt
   e.flash = max(0, e.flash - dt)
+  e.hitT = max(0, (e.hitT or 0) - dt)
   e.hpShow = max(0, e.hpShow - dt)
   e.x, e.y = e.x + f.vx * dt, e.y + f.vy * dt
   e.vz = e.vz - 20 * dt
@@ -1306,6 +1309,7 @@ local function updateEnemy(e, dt)
   if e.fly then return updateFlying(e, dt) end
   local T, p = e.T, player
   e.flash = max(0, e.flash - dt)
+  e.hitT = max(0, (e.hitT or 0) - dt)
   e.hpShow = max(0, e.hpShow - dt)
   e.cd, e.cd2 = e.cd - dt, e.cd2 - dt
   local dx, dy = p.x - e.x, p.y - e.y
@@ -2059,6 +2063,16 @@ local function drawEnemy(e)
     return
   end
   if (st == "windup" and e.kind == "brute") or st == "dash" then o.crouch, o.lean = 12, .45 end
+  -- 맞으면 상체가 뒤로 움찔: 확 젖혀졌다가 빠르게 돌아온다 (덩치 큰 돌격병은 덜 움찔)
+  if (e.hitT or 0) > 0 then
+    local k = 1 - e.hitT / HIT_FLINCH
+    local amt = (e.kind == "brute") and .28 or .5
+    -- 맞은 방향으로 젖힌다: 앞에서 맞으면 뒤로, 뒤에서 맞으면 앞으로
+    local d = (e.lastDx or -cos(e.face)) * cos(e.face) + (e.lastDy or -sin(e.face)) * sin(e.face)
+    local sgn = d >= 0 and max(.5, d) or min(-.5, d)
+    o.lean = o.lean + sgn * amt * sin(min(1, k * 1.6) * pi) * (1 - k * .4)
+    o.crouch = o.crouch + 5 * (1 - k)
+  end
   local hipU, chF, chU = Rig.body(o.crouch, o.lean)
   if e.kind == "sword" or e.kind == "brute" then
     if (st == "windup" and e.kind == "sword") or st == "slamWind" then
