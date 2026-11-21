@@ -368,7 +368,7 @@ local function hurtPlayer(dmg, sx, sy, kb, attacker, isProj)
   if p.blocking then
     local toSrc = atan2(sy - p.y, sx - p.x)
     if abs(angDiff(toSrc, p.face)) < 1.2 then
-      local perfect = gameTime - p.blockStart < .22
+      local perfect = gameTime - p.blockStart < .22 and not p.style.noPerfect
       p.blockFlash = .25
       sparks(p.x + cos(p.face) * .5, p.y + sin(p.face) * .5, 1, -dx, -dy, perfect and 14 or 8, perfect and { 1, 1, .6 } or nil)
       play("block", .15)
@@ -378,7 +378,7 @@ local function hurtPlayer(dmg, sx, sy, kb, attacker, isProj)
         hitStop(9)
         return "perfect"
       end
-      local d = dmg * .2
+      local d = dmg * (p.style.blockChip or .2)        -- 방패 20%, 칼 30%
       p.hp = p.hp - d
       p.kx, p.ky = p.kx + dx * kb * .35, p.ky + dy * kb * .35     -- 약간씩 밀쳐짐
       addText(p.x, p.y, tostring(floor(d + .5)), { .8, .85, 1 })
@@ -520,6 +520,8 @@ end
 -- 주먹: 앞쪽 좁은 부채꼴 안의 적을 모두 친다. 같은 적을 계속 때리면 그 적에게 연타가 쌓여 세진다
 local launchEnemy
 local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 약 4m 날아간다)
+local SPIN_R = 2.1                      -- 검사 3타 회전베기 반경 (m)
+local BLADE_BLOCK_CHIP = .3             -- 칼로 막기: 막아도 받는 피해 비율 (30%)
 local function inPunchReach(p, e, dir, range, half)
   if e.dead or e.fly then return false end
   local dx, dy = e.x - p.x, e.y - p.y
@@ -703,64 +705,88 @@ STYLES = {
   -- 2 검사 -----------------------------------------------------------------
   {
     id = "blade", name = "검사", tag = "리얼타임 액션", hp = 120, speed = 5.2,
-    desc = { "좌클릭  3연격 — 공격 시 전진", "공격 중 마우스로 방향 조절", "앞쪽 적에게 자동 조준", "우클릭  돌진 베기" },
+    desc = { "좌클릭  3연격 — 공격 시 전진, 3타는 회전베기(주위 전부)", "공격 중 마우스로 방향 조절 · 앞쪽 적 자동 조준", "우클릭 누르기  칼로 막기 — 공격·투사체를 막지만", "막을 때마다 체력이 조금 닳는다" },
+    blockChip = BLADE_BLOCK_CHIP, noPerfect = true,   -- 막아도 체력이 조금 닳는다 (완벽한 막기 없음)
     update = function(p, dt)
+      -- 칼로 막기: 우클릭을 누르는 동안 앞쪽에서 오는 공격·투사체를 막는다 (체력은 조금 닳음)
+      local want = mouseDown(2) and canAct(p) and not p.sw
+      if want and not p.blocking then p.blockStart = gameTime end
+      p.blocking = want
+      if p.blocking then p.face = turn(p.face, p.aim, dt * 9) end
+      p.blockFlash = max(0, p.blockFlash - dt)
       if p.sw then
         local s = p.sw
         s.t = s.t + dt
-        s.dir = turn(s.dir, p.aim, dt * 5)            -- 공격하면서 방향 조절
-        p.face = s.dir
-        if not s.hit and s.t >= s.dur * .3 then
-          s.hit = true
-          meleeArc(p.x, p.y, s.dir, s.range, s.half, s.dmg, s.kb, s.heavy and 11 or 7, s.heavy)
+        if s.spin then
+          -- 회전베기: 제자리에서 한 바퀴 돌며 주위를 전부 벤다
+          local q = min(1, s.t / s.dur)
+          p.face = s.dir + (1 - (1 - q) ^ 2) * pi * 2
+          if not s.hit and q >= .25 then
+            s.hit = true
+            for _, e in ipairs(enemies) do
+              if not e.dead and not e.fly then
+                local dx, dy = e.x - p.x, e.y - p.y
+                if len(dx, dy) < SPIN_R + e.r then
+                  local nx, ny = norm(dx, dy)
+                  hitEnemy(e, 26, nx, ny, 11, 11, true)
+                end
+              end
+            end
+            fx[#fx + 1] = { kind = "ring", x = p.x, y = p.y, r = SPIN_R + .2, t = 0, dur = .3, col = { .9, .95, 1 } }
+            addShake(.3)
+          end
+          if s.t >= s.dur then p.face = s.dir; p.sw = nil end
+        else
+          s.dir = turn(s.dir, p.aim, dt * 5)            -- 공격하면서 방향 조절
+          p.face = s.dir
+          if not s.hit and s.t >= s.dur * .3 then
+            s.hit = true
+            meleeArc(p.x, p.y, s.dir, s.range, s.half, s.dmg, s.kb, 7)
+          end
+          if s.t >= s.dur then p.sw = nil end
         end
-        if s.t >= s.dur then p.sw = nil end
       end
-      if p.dashSlash then
-        local d = p.dashSlash
-        d.t = d.t + dt
-        p.x, p.y = p.x + cos(d.dir) * 18 * dt, p.y + sin(d.dir) * 18 * dt
-        p.face = d.dir
-        meleeArc(p.x, p.y, d.dir, 1.1, pi, 24, 8, 9, true, d.hit)
-        if d.t >= .26 then p.dashSlash = nil end
-      end
-      if mouseDown(1) and not p.sw and not p.dashSlash and p.atkCd <= 0 and canAct(p) then
+      if mouseDown(1) and not p.sw and not p.blocking and p.atkCd <= 0 and canAct(p) then
         p.combo = (p.comboT > 0) and (p.combo % 3 + 1) or 1
         p.comboT = .55
-        local heavy = p.combo == 3
+        local spin = p.combo == 3
         local dir = autoTarget(p, p.aim, 3.2, .6)       -- 전방 자동 조준
-        p.sw = { t = 0, dur = heavy and .3 or .22, dir = dir, side = (p.combo == 2) and -1 or 1, heavy = heavy,
-          range = heavy and 2.1 or 1.75, half = heavy and 1.2 or 1.05, dmg = heavy and 26 or 14, kb = heavy and 11 or 6 }
-        p.atkCd = heavy and .5 or .27
+        p.sw = { t = 0, dur = spin and .36 or .22, dir = dir, side = (p.combo == 2) and -1 or 1, spin = spin,
+          range = 1.75, half = 1.05, dmg = 14, kb = 6 }
+        p.atkCd = spin and .55 or .27
         p.face = dir
-        p.kx, p.ky = p.kx + cos(dir) * (heavy and 9 or 6), p.ky + sin(dir) * (heavy and 9 or 6)   -- 공격 시 전진
-        play("swing", .25, heavy and 1 or .8)
+        if not spin then
+          p.kx, p.ky = p.kx + cos(dir) * 6, p.ky + sin(dir) * 6   -- 공격 시 전진 (회전베기는 제자리)
+        end
+        play("swing", .25, spin and 1 or .8)
       end
     end,
-    press = function(p, b)
-      if b == 2 and p.cdR <= 0 and canAct(p) and not p.sw then
-        p.dashSlash = { t = 0, dir = p.aim, hit = {} }
-        p.cdR, p.inv = 4, .3
-        play("dash"); play("swing", .1, 1)
-      end
-    end,
-    speedMul = function(p) return p.sw and .4 or 1 end,
-    cdMax = 4, rName = "돌진 베기",
+    press = function() end,
+    speedMul = function(p) return p.blocking and .5 or (p.sw and (p.sw.spin and .25 or .4) or 1) end,
+    rName = "칼로 막기",
     pose = function(p, o)
-      if p.dashSlash then o.lean, o.crouch = .5, 10 end
+      if p.blocking then o.crouch = 7 end
       local hipU, chF, chU = Rig.body(o.crouch, o.lean)
       o.weapon = "sword"
-      if p.sw then
+      o.blockFlash = p.blockFlash * 2
+      if p.blocking then
+        -- 칼을 가로로 눕혀 앞을 막는다 (왼손은 칼등을 받친다)
+        o.rh = { chF + 24, 12, chU - 4 }
+        o.wdir = { .12, -1, .12 }
+        o.lh = { chF + 26, -14, chU - 1 }
+        o.wglow = p.blockFlash > 0
+      elseif p.sw then
         local s = p.sw
         local t = min(1, s.t / s.dur)
         local e = 1 - (1 - t) ^ 2
-        if s.heavy then
-          local a0, a1 = 2.3, -.7
-          local a = a0 + (a1 - a0) * e
-          o.rh = { chF + 8 + cos(a) * 28, 8, chU - 4 + sin(a) * 28 }
-          o.lh = { o.rh[1] - cos(a) * 12, 2, o.rh[3] - sin(a) * 12 }
-          o.wdir = { cos(a), .05, sin(a) }
-          o.trail = { kind = "v", a0 = a0, a = a, r = 150, cf = chF + 8, cs = 8, cu = chU - 4, w = 9 }
+        if s.spin then
+          -- 칼을 오른쪽으로 길게 뻗은 채 몸과 같이 돈다
+          o.face = p.face
+          o.crouch = 6
+          o.rh = { chF + 4, 36, chU - 16 }
+          o.wdir = { .18, 1, -.06 }
+          o.lh = { chF - 4, -30, chU - 10 }
+          o.trail = { kind = "h", a0 = pi * .55 - (1 - (1 - t) ^ 2) * pi * 1.6, a = pi * .55, r = 150, cf = chF, cs = 0, cu = chU - 18, w = 8 }
         else
           local a0, a1 = 1.9, -1.5
           if s.side == -1 then a0, a1 = -1.5, 1.9 end
@@ -769,8 +795,6 @@ STYLES = {
           o.wdir = { cos(a), sin(a), -.05 }
           o.trail = { kind = "h", a0 = a0, a = a, r = 152, cf = chF + 6, cs = 4, cu = chU - 14, w = 7 }
         end
-      elseif p.dashSlash then
-        o.rh = { chF + 6, 22, chU - 24 }; o.wdir = { -.85, .35, -.15 }
       else
         o.rh = { chF + 16, 16, hipU + 14 }; o.wdir = { .75, .2, -.55 }
       end
@@ -2366,7 +2390,7 @@ local function drawHUD()
   lg.setColor(.3, .9, .4); lg.rectangle("fill", bx, H - 31, bw * p.hp / p.maxhp, 14, 3)
   lg.setColor(1, 1, 1); txt(floor(p.hp) .. " / " .. p.maxhp, bx, H - 32, fontS, "center", bw)
   cdIcon(W - 150, H - 82, "Spc", "덤블링", max(0, p.dashCd) / .7)
-  if st.cdMax then cdIcon(W - 80, H - 82, "우", st.rName, p.cdR / st.cdMax) end
+  if st.rName then cdIcon(W - 80, H - 82, "우", st.rName, st.cdMax and p.cdR / st.cdMax or 0) end
   lg.setColor(.7, .7, .7); txt("1~" .. #STYLES .. " 캐릭터 교체   Tab 목록   R 체력 채우기(개발자)   Esc 일시정지", W - 460, 10, fontS, "right", 448)
   -- 지금 캐릭터 표시
   for i, s2 in ipairs(STYLES) do
@@ -2453,9 +2477,11 @@ local function pressBtn(b)
 end
 
 function love.load(args)
-  -- --autotest      : 지금 작업 중인 맨손만 40초
+  -- --autotest      : 지금 작업 중인 스타일 하나만 40초 (기본 맨손, --style=2 면 검사)
   -- --autotest-all  : 7개 스타일 모두 25초씩
   for _, a in ipairs(args or {}) do
+    local n = a:match("^%-%-style=(%d+)$")
+    if n and STYLES[tonumber(n)] then styleIdx = tonumber(n) end
     if a == "--autotest" or a == "--autotest-all" then
       AUTO = { t = 0, keys = {}, mouse = {}, ax = 0, ay = 0, dirT = 0, deaths = 0, styleT = 0, kills = {},
         all = a == "--autotest-all", perStyle = (a == "--autotest-all") and 25 or 40 }
@@ -2509,7 +2535,13 @@ local function autoStep(dt)
     A.mouse[1] = bd < 2.0
     if bd < 2 and rnd() < .03 then pressBtn(2) end
     if player.kk and player.kk.t > .1 and not A.kickShot then A.kickShot = true; lg.captureScreenshot("auto_fist_kick.png") end
-  elseif id == "blade" or id == "guard" then A.mouse[1] = bd < 2.4
+  elseif id == "blade" then
+    -- 가까우면 베고, 가끔은 우클릭으로 막는다 (막기 중엔 공격 안 함)
+    A.mouse[2] = bd < 4 and (A.t % 3) < 1
+    A.mouse[1] = bd < 2.4 and not A.mouse[2]
+    if player.sw and player.sw.spin and player.sw.t > .12 and not A.spinShot then A.spinShot = true; lg.captureScreenshot("auto_blade_spin.png") end
+    if player.blocking and player.blockFlash > 0 and not A.blockShot then A.blockShot = true; lg.captureScreenshot("auto_blade_block.png") end
+  elseif id == "guard" then A.mouse[1] = bd < 2.4
   elseif id == "archer" then A.mouse[1] = (A.t * 1.3) % 1 < .75
   elseif id == "bomber" then A.mouse[1] = (A.t * .9) % 1 < .5
   elseif id == "gunner" then A.mouse[1] = (A.t * .4) % 1 < .7
