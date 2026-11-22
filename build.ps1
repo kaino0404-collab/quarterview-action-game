@@ -28,6 +28,11 @@ function AddFile($path, $entry) {
   [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($arc, $path, $entry.Replace("\", "/")) | Out-Null
 }
 Get-ChildItem $src -Filter *.lua -File | ForEach-Object { AddFile $_.FullName $_.Name }
+# 배경 질감 그림 (bg/floor.png 등, 있을 때만)
+$bgDir = Join-Path $src "bg"
+if (Test-Path $bgDir) {
+  Get-ChildItem $bgDir -File | Where-Object { $_.Extension -match '^\.(png|jpe?g)$' } | ForEach-Object { AddFile $_.FullName ("bg/" + $_.Name) }
+}
 $arc.Dispose(); $fs.Dispose()
 $bytes = [IO.File]::ReadAllBytes((Join-Path $love "love.exe")) + [IO.File]::ReadAllBytes($zip)
 

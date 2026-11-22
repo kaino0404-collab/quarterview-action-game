@@ -1837,6 +1837,41 @@ local function computeView()
   viewY1 = ceil(cam.y + H / S / KY / 2) + 5
 end
 
+-- 배경 질감 (힉스필드 등으로 만든 그림): bg/ 폴더에 있으면 입히고, 없으면 예전 단색 그대로
+--   floor      바닥 (이음매 없이 반복되는 그림, 위에서 내려다본 것)
+--   wall_top   벽 윗면 (위에서 내려다본 것)
+--   wall_front 벽 앞면 (정면에서 본 것, 그림 아래쪽이 땅)
+-- BG_M = 그림 한 장이 덮는 크기 (미터). 캐릭터 키가 약 1.8m
+local BG_M = { floor = 4, wall_top = 2, wall_front = 2 }
+local bgtex = {}
+local bgQuad = nil
+local function loadBgTextures()
+  for name in pairs(BG_M) do
+    for _, ext in ipairs({ ".png", ".jpg", ".jpeg" }) do
+      local path = "bg/" .. name .. ext
+      if love.filesystem.getInfo(path) then
+        local ok, img = pcall(lg.newImage, path, { mipmaps = true })
+        if ok then
+          img:setWrap("repeat", "repeat")
+          img:setMipmapFilter("linear")
+          bgtex[name] = img
+          print("배경 질감 읽음: " .. path)
+          break
+        end
+      end
+    end
+  end
+  bgQuad = lg.newQuad(0, 0, 1, 1, 1, 1)
+end
+-- 질감 하나를 화면 사각형(sx, sy 위치)에 그린다. u, v = 그림 위 좌표(미터), w, h = 크기(미터), ppx, ppy = 1미터당 화면 픽셀
+local function bgDraw(name, sx, sy, u, v, w, h, ppx, ppy)
+  local img = bgtex[name]
+  local iw, ih = img:getDimensions()
+  local px, py = iw / BG_M[name], ih / BG_M[name]           -- 그림 픽셀 / 미터
+  bgQuad:setViewport(u * px, v * py, w * px, h * py, iw, ih)
+  lg.draw(img, bgQuad, sx, sy, 0, ppx / px, ppy / py)
+end
+
 -- 상자 벽 한 칸: 윗면 + (앞이 낮으면) 앞면 + 경계선
 local function wallColors(h)
   if h <= LOW then return { .82, .77, .62 }, { .38, .34, .28 } end   -- 넘을 수 있는 낮은 벽: 밝게
@@ -1850,14 +1885,27 @@ local function drawCell(x, y)
   local yt0 = (y * KY - h * KZ) * S
   local yt1 = ((y + 1) * KY - h * KZ) * S
   local hs = tileH(x, y + 1)
+  -- 높은 벽일수록 조금 어둡게 (질감에 곱하는 색)
+  local tint = h <= LOW and 1 or (h >= 2.3 and .78 or .92)
   if hs < h then
-    local yb = ((y + 1) * KY - min(hs, h) * KZ) * S
-    if hs == 99 then yb = ((y + 1) * KY) * S end
-    lg.setColor(front)
-    lg.rectangle("fill", x0, yt1, S, yb - yt1)
+    local zb = (hs == 99) and 0 or min(hs, h)
+    local yb = ((y + 1) * KY - zb * KZ) * S
+    if bgtex.wall_front then
+      lg.setColor(tint, tint, tint)
+      -- 그림 아래쪽이 땅(z=0)에 오도록: v = (10 - z)
+      bgDraw("wall_front", x0, yt1, x, 10 - h, 1, h - zb, S, KZ * S)
+    else
+      lg.setColor(front)
+      lg.rectangle("fill", x0, yt1, S, yb - yt1)
+    end
   end
-  lg.setColor(top)
-  lg.rectangle("fill", x0, yt0, S, yt1 - yt0)
+  if bgtex.wall_top then
+    lg.setColor(tint, tint, tint)
+    bgDraw("wall_top", x0, yt0, x, y, 1, 1, S, KY * S)
+  else
+    lg.setColor(top)
+    lg.rectangle("fill", x0, yt0, S, yt1 - yt0)
+  end
   if h <= LOW then
     -- 넘을 수 있다는 표시 (빗금)
     lg.setColor(.95, .78, .3, .45)
@@ -1911,9 +1959,15 @@ end
 local function drawGround()
   lg.setColor(.24, .25, .15)
   lg.rectangle("fill", (cam.x - 40) * S, (cam.y - 40) * KY * S, 80 * S, 80 * KY * S)
-  lg.setColor(.47, .47, .27)
   local x0, y0 = proj(1, 1)
   local x1, y1 = proj(MAPW + 1, MAPH + 1)
+  if bgtex.floor then
+    -- 질감 바닥: 얼룩·격자 없이 그림 그대로
+    lg.setColor(1, 1, 1)
+    bgDraw("floor", x0, y0, 1, 1, MAPW, MAPH, S, KY * S)
+    return
+  end
+  lg.setColor(.47, .47, .27)
   lg.rectangle("fill", x0, y0, x1 - x0, y1 - y0)
   for _, b in ipairs(blots) do
     lg.setColor(.3, .3, .12, b.a)
@@ -2493,6 +2547,7 @@ function love.load(args)
   fontData = loadFontData()
   makeFonts()
   makeSounds()
+  loadBgTextures()
   beamSrc = sfx.beam
   shadowCanvas = lg.newCanvas(W, H)
   newGame()
