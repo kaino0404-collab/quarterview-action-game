@@ -1743,6 +1743,7 @@ local function startWave(n)
   waveQueue = {}
   local s = 3 + n * 2
   local g = n >= 2 and floor(n / 2) + 1 or 0
+  g = floor(g / 3 + .5)                -- 총잡이 수 3분의 1 (유저 2026-11-23, 반올림: 웨이브 2~7 = 1, 8~11 = 2 …)
   local b = floor(n / 3)
   for _ = 1, s do waveQueue[#waveQueue + 1] = "sword" end
   for _ = 1, g do waveQueue[#waveQueue + 1] = "gun" end
