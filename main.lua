@@ -544,6 +544,8 @@ BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .15, preMo
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3 }
 -- 돌격병 돌진 (덩치에 맞게 묵직하게, 2026-11-23 유저): 속도 11 → 7 m/s, 시간 .55 → .8초 (거리 약 6m → 5.6m 로 비슷)
 BRUTE_DASH_SPD, BRUTE_DASH_T = 7, .8
+-- 돌격병 내려찍기 준비(몽둥이 들고 빨갛게 깜빡) .75 → 1.2초 (유저: "곰의 내려찍기는 너무 빨라")
+BRUTE_SLAM_T = 1.2
 -- 가로베기 각도 반폭 1.05 → 1.5 (약 86도, 그림에서 칼이 오른쪽 옆 → 왼쪽 옆으로 가는 만큼),
 -- 검기가 휘두르기 칸이 나오는 순간(공격 시간 30%)부터 22% 동안 쓸고 지나감
 local function inPunchReach(p, e, dir, range, half)
@@ -1465,7 +1467,7 @@ local function updateEnemy(e, dt)
       e.face = turn(e.face, toP, dt * 8)
     else
       if d < T.range + .2 and e.cd2 <= 0 then
-        e.state, e.t, e.cd2 = "slamWind", .75, 3
+        e.state, e.t, e.cd2 = "slamWind", BRUTE_SLAM_T, 3
       elseif d < 7 and d > 2.4 and e.cd <= 0 and los(e.x, e.y, p.x, p.y, .3) then
         e.state, e.t, e.aim = "windup", T.windup, toP
       else
@@ -2162,7 +2164,7 @@ local function drawGroundMarks()
         lg.setColor(1, .15, .1, .2); groundArc(e.x, e.y, 0, T.range + .1, e.aim - 1.05, e.aim + 1.05)
         lg.setColor(1, .2, .1, .35); groundArc(e.x, e.y, 0, (T.range + .1) * k, e.aim - 1.05, e.aim + 1.05)
       elseif e.kind == "brute" then
-        local L = 6
+        local L = BRUTE_DASH_SPD * BRUTE_DASH_T   -- 경고 줄 길이 = 실제 돌진 거리 (예전 6m 고정)
         local ux, uy = cos(e.aim), sin(e.aim)
         local vx, vy = -uy * e.r, ux * e.r
         local function q(t, a)
@@ -2176,7 +2178,7 @@ local function drawGroundMarks()
         q(1, .15); q(k, .3)
       end
     elseif e.state == "slamWind" then
-      local k = clamp(1 - e.t / .75, 0, 1)
+      local k = clamp(1 - e.t / BRUTE_SLAM_T, 0, 1)   -- 바닥 빨간 원이 준비 시간에 맞춰 차오름
       lg.setColor(1, .15, .1, .15); groundCircle("fill", e.x, e.y, 2.2)
       lg.setColor(1, .2, .1, .3); groundCircle("fill", e.x, e.y, 2.2 * k)
     end
