@@ -25,7 +25,7 @@ Rig.setup(KY, KZ, S / 100)
 
 local AUTO = nil              -- 자동 테스트 (--autotest)
 -- 개발자 버튼 (화면 왼쪽 위: 무적 / 적 제거 / 적 생성). main 지역 변수 200개 한도 때문에 전역 표 하나로.
-DEV = { god = false, hold = false }
+DEV = { god = false, hold = false, stop = false }   -- stop: '적 제거'로 웨이브 멈춤 ('적 생성'이 다시 켬)
 
 -------------------------------------------------------------------------------
 -- 기본
@@ -1680,7 +1680,7 @@ local function updateWaves(dt)
       end
       spawnT = max(.6, 2.2 - wave * .12)
     end
-  elseif #enemies == 0 and #spawns == 0 then
+  elseif #enemies == 0 and #spawns == 0 and not DEV.stop then   -- 개발자 '적 제거' 뒤엔 다음 웨이브 안 옴
     breakT = breakT - dt
     if breakT <= 0 then startWave(wave + 1); breakT = 3.5 end
   end
@@ -1703,15 +1703,18 @@ function DEV.run(id)
     DEV.god = not DEV.god
     addText(p.x, p.y, DEV.god and "무적 켬 (개발자)" or "무적 끔 (개발자)", { 1, .9, .4 }, true)
   elseif id == "kill" then
-    -- 지금 있는 적·나오는 중인 적·이번 웨이브 남은 적을 모두 없앤다 (3.5초 뒤 다음 웨이브)
+    -- 지금 있는 적·나오는 중인 적·이번 웨이브 남은 적을 모두 없애고, 웨이브를 멈춘다 (더 안 나옴)
     for _, e in ipairs(enemies) do
       if not e.dead then e.lastKb = 8; killEnemy(e) end
     end
     spawns, waveQueue = {}, {}
+    DEV.stop = true
     addShake(.3)
-    addText(p.x, p.y, "적 제거 (개발자)", { 1, .5, .4 }, true)
+    addText(p.x, p.y, "적 제거 · 웨이브 멈춤 (개발자)", { 1, .5, .4 }, true)
   else
-    -- 캐릭터 주위 4~6m 에 칼잡이·총잡이·돌격병 1마리씩
+    -- 웨이브를 다시 켜고, 캐릭터 주위 4~6m 에 칼잡이·총잡이·돌격병 1마리씩
+    DEV.stop = false
+    breakT = 3.5
     for _, kind in ipairs({ "sword", "gun", "brute" }) do
       for _ = 1, 40 do
         local a, d = rnd() * pi * 2, 4 + rnd() * 2
@@ -2590,7 +2593,8 @@ local function drawHUD()
   -- 웨이브
   lg.setColor(1, 1, 1)
   local left = #enemies + #spawns + #waveQueue
-  txt(wave > 0 and ("웨이브 " .. wave .. "   ·   남은 적 " .. left) or "준비", 0, 10, fontM, "center", W)
+  txt(DEV.stop and ("웨이브 멈춤 (개발자)   ·   남은 적 " .. left)
+    or (wave > 0 and ("웨이브 " .. wave .. "   ·   남은 적 " .. left) or "준비"), 0, 10, fontM, "center", W)
   lg.setColor(.85, .85, .85); txt("처치 " .. kills, 12, 10, fontS)
   -- 개발자 버튼
   local mgx, mgy = toGame(love.mouse.getPosition())
@@ -2786,7 +2790,8 @@ local function autoStep(dt)
   -- 개발자 버튼 기능도 한 번씩 (무적 켜고 끄기, 적 생성, 적 제거)
   if A.styleT >= 20 and A.styleT - dt < 20 then DEV.run("god"); DEV.run("spawn"); print("[자동테스트] 개발자: 무적 켬 + 적 생성") end
   if A.styleT >= 22 and A.styleT - dt < 22 then lg.captureScreenshot("auto_dev.png") end
-  if A.styleT >= 24 and A.styleT - dt < 24 then DEV.run("kill"); DEV.run("god"); print("[자동테스트] 개발자: 적 제거 + 무적 끔") end
+  if A.styleT >= 24 and A.styleT - dt < 24 then DEV.run("kill"); DEV.run("god"); print("[자동테스트] 개발자: 적 제거(웨이브 멈춤) + 무적 끔") end
+  if A.styleT >= 29.5 and A.styleT - dt < 29.5 then print("[자동테스트] 멈춘 뒤 5.5초 (예전엔 3.5초면 다음 웨이브): 남은 적 " .. (#enemies + #spawns + #waveQueue)); DEV.run("spawn") end
   -- 맨손: 스트레이트 직후(적이 날아가는 중)를 찍는다
   if player.style.id == "fist" and not A.flyShot then
     for _, e in ipairs(enemies) do
