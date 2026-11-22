@@ -319,8 +319,27 @@ local function keyDown(...)
   end
   return love.keyboard.isDown(...)
 end
+-- 게임패드 (엑스박스식 배치, 2026-11-23 유저 "패드 넣기"). 지역 변수 200개 한도 때문에 전역 표.
+--   왼쪽 스틱/십자키 = 이동, 오른쪽 스틱 = 조준 (기울인 만큼 멀리: 검사 내려찍기 거리 1.5~7m)
+--   X 또는 RT = 좌클릭(공격), Y 또는 RB = 우클릭(스킬), A 또는 LB = 회피 덤블링, Start = 일시정지, Back = 스타일 고르기
+--   패드를 만지면 패드 모드(조준을 스틱으로), 마우스를 움직이면 마우스 모드로 돌아간다
+PAD = { js = nil, active = false, aim = 0, dist = 4, rt = false, sel = 1, dead = .25 }
+function PAD.axis(name)
+  if not PAD.js then return 0 end
+  local v = PAD.js:getGamepadAxis(name)
+  return abs(v) > PAD.dead and v or 0
+end
+-- 마우스 버튼 b(1 = 공격, 2 = 스킬)에 해당하는 패드 버튼이 눌려 있나
+function PAD.held(b)
+  local j = PAD.js
+  if not j then return false end
+  if b == 1 then return j:isGamepadDown("x") or j:getGamepadAxis("triggerright") > .5 end
+  if b == 2 then return j:isGamepadDown("y", "rightshoulder") end
+  return false
+end
 local function mouseDown(b)
   if AUTO then return AUTO.mouse[b] end
+  if PAD.held(b) then return true end
   if DEV.hold then                             -- 개발자 버튼을 누른 클릭은 공격으로 치지 않는다
     if love.mouse.isDown(1) then return false end
     DEV.hold = false
@@ -331,6 +350,8 @@ local function screenToWorld(gx, gy, z)
   return (gx - W / 2) / S + cam.x, ((gy - H / 2) / S + (z or 0) * KZ) / KY + cam.y
 end
 local function mouseWorld(z)
+  -- 패드 모드: 캐릭터에서 조준 방향으로 PAD.dist 만큼 떨어진 곳을 "마우스 지점"으로 쓴다
+  if PAD.active and player then return player.x + cos(PAD.aim) * PAD.dist, player.y + sin(PAD.aim) * PAD.dist end
   if AUTO then return AUTO.ax, AUTO.ay end
   local gx, gy = toGame(love.mouse.getPosition())
   return screenToWorld(gx, gy, z or 1)
@@ -1249,6 +1270,19 @@ local function updatePlayer(dt)
   p.atkCd = p.atkCd - dt
   p.comboT = p.comboT - dt
 
+  -- 패드 조준: 오른쪽 스틱을 기울이면 그 방향 (기울인 만큼 멀리), 놓으면 걷는 방향, 서 있으면 마지막 방향
+  if PAD.js and not AUTO then
+    local rx, ry = PAD.axis("rightx"), PAD.axis("righty")
+    local lx, ly = PAD.axis("leftx"), PAD.axis("lefty")
+    local rm = len(rx, ry)
+    if rm > .3 then
+      PAD.active = true
+      PAD.aim, PAD.dist = atan2(ry * (1 / KY), rx), 1.5 + 5.5 * min(1, (rm - .3) / .6)
+    elseif PAD.active and len(lx, ly) > .3 then
+      PAD.aim, PAD.dist = atan2(ly * (1 / KY), lx), 4
+    end
+    if lx ~= 0 or ly ~= 0 then PAD.active = true end
+  end
   local mx, my = mouseWorld(1)
   p.aim = atan2(my - p.y, mx - p.x)
 
@@ -1258,6 +1292,15 @@ local function updatePlayer(dt)
     if keyDown("d", "right") then ix = ix + 1 end
     if keyDown("w", "up") then iy = iy - 1 end
     if keyDown("s", "down") then iy = iy + 1 end
+    -- 패드: 왼쪽 스틱 + 십자키
+    if PAD.js and not AUTO then
+      local j = PAD.js
+      ix, iy = ix + PAD.axis("leftx"), iy + PAD.axis("lefty")
+      if j:isGamepadDown("dpleft") then ix = ix - 1 end
+      if j:isGamepadDown("dpright") then ix = ix + 1 end
+      if j:isGamepadDown("dpup") then iy = iy - 1 end
+      if j:isGamepadDown("dpdown") then iy = iy + 1 end
+    end
   end
   local dx, dy = norm(ix, iy)
   p.mvx, p.mvy = dx, dy
@@ -2197,6 +2240,10 @@ local function drawGroundMarks()
     end
   end
   if state == "play" then
+    if PAD.active and not p.leap and p.hp > 0 then   -- 패드 조준점 (오른스틱으로 정한 곳, 내려찍기는 여기로 뛴다)
+      local ax, ay = p.x + cos(PAD.aim) * PAD.dist, p.y + sin(PAD.aim) * PAD.dist
+      lg.setColor(1, 1, 1, .4); lg.setLineWidth(2); groundCircle("line", ax, ay, .3)
+    end
     if p.leap then   -- 검사 점프 내려찍기: 내려앉을 곳과 맞는 범위
       local k = p.leap.t / p.leap.dur
       lg.setColor(.7, .9, 1, .85); lg.setLineWidth(2.5)
@@ -2959,11 +3006,13 @@ local function drawSelect()
   lg.setColor(.85, .85, .8)
   local hint = inGame and player.hp > 0 and ("1 ~ " .. #STYLES .. " 또는 클릭 — 싸우던 상황 그대로 캐릭터만 바뀝니다  ·  Tab/Esc 돌아가기")
     or ("1 ~ " .. #STYLES .. " 또는 클릭  ·  공통: WASD 이동, 마우스 조준, Space 회피 덤블링 (낮은 벽은 넘는다)")
+  if PAD.js then hint = "패드: 십자키로 고르고 A 결정  ·  왼스틱 이동, 오른스틱 조준, X/RT 공격, Y/RB 스킬, A/LB 덤블링" end
   txt(hint, 0, 48, fontS, "center", W)
   local gx, gy = toGame(love.mouse.getPosition())
   for i, st in ipairs(STYLES) do
     local x, y, w, h = cardRect(i)
     local hov = gx >= x and gx <= x + w and gy >= y and gy <= y + h
+    if PAD.active then hov = i == PAD.sel end     -- 패드로 고르는 중이면 고른 칸을 밝게
     lg.setColor(0, 0, 0, hov and .55 or .4); lg.rectangle("fill", x, y, w, h, 8)
     lg.setColor(hov and { .45, .85, 1 } or { 1, 1, 1, .3 }); lg.setLineWidth(hov and 2.5 or 1.5); lg.rectangle("line", x, y, w, h, 8)
     -- 미리보기 캐릭터 (8방향으로 돈다)
@@ -3109,6 +3158,20 @@ local function autoStep(dt)
   if A.styleT >= 20 and A.styleT - dt < 20 then DEV.run("god"); DEV.run("spawn"); print("[자동테스트] 개발자: 무적 켬 + 적 생성") end
   if A.styleT >= 22 and A.styleT - dt < 22 then lg.captureScreenshot("auto_dev.png") end
   if A.styleT >= 24 and A.styleT - dt < 24 then DEV.run("kill"); DEV.run("god"); print("[자동테스트] 개발자: 적 제거(웨이브 멈춤) + 무적 끔") end
+  -- 가짜 패드로 패드 코드 한 번씩 지나가 보기 (오른쪽 조준 5m, Y = 스킬, A = 덤블링, X = 공격)
+  if A.styleT >= 26 and A.styleT - dt < 26 then
+    local fake = { isGamepad = function() return true end, getGamepadAxis = function(_, n) return n == "triggerright" and 1 or 0 end,
+      isGamepadDown = function() return false end }
+    PAD.js, PAD.active, PAD.aim, PAD.dist = fake, true, 0, 5
+    local mx, my = mouseWorld(0)
+    print(("[자동테스트] 패드: 조준점 %.1f, %.1f (캐릭터 %.1f, %.1f), RT 공격 눌림 %s"):format(mx, my, player.x, player.y, tostring(PAD.held(1))))
+    player.cdR, player.sw, player.dash, player.vault, player.stagger = 0, nil, nil, nil, 0
+    love.gamepadpressed(fake, "y")
+    print(("[자동테스트] 패드: Y(스킬) 누름 → 점프 %s, 내려앉을 곳까지 %.1fm"):format(tostring(player.leap ~= nil),
+      player.leap and len(player.leap.x1 - player.x, player.leap.y1 - player.y) or 0))
+  end
+  if A.styleT >= 27 and A.styleT - dt < 27 then love.gamepadpressed(PAD.js, "a"); print("[자동테스트] 패드: A(덤블링) 누름 → 회피 " .. tostring(player.dash ~= nil or player.vault ~= nil)) end
+  if A.styleT >= 28 and A.styleT - dt < 28 then PAD.js, PAD.active, PAD.rt = nil, false, false; print("[자동테스트] 패드: 뺌") end
   if A.styleT >= 29.5 and A.styleT - dt < 29.5 then print("[자동테스트] 멈춘 뒤 5.5초 (예전엔 3.5초면 다음 웨이브): 남은 적 " .. (#enemies + #spawns + #waveQueue)); DEV.run("spawn") end
   -- 맨손: 스트레이트 직후(적이 날아가는 중)를 찍는다
   if player.style.id == "fist" and not A.flyShot then
@@ -3134,6 +3197,12 @@ function love.update(dt)
       updateCamera(sdt)
     end
     return
+  end
+  -- 패드 공격 버튼(X 또는 RT)은 누른 순간 한 번 pressBtn(1) (트리거는 축이라 여기서 본다)
+  if PAD.js then
+    local h = PAD.held(1)
+    if h and not PAD.rt then PAD.active = true; pressBtn(1) end
+    PAD.rt = h
   end
   if state == "play" then updatePlay(dt)
   elseif state == "dead" then updateFx(dt); updateTexts(dt); updateCorpses(dt) end
@@ -3224,4 +3293,30 @@ function love.mousepressed(x, y, b)
   pressBtn(b)
 end
 
-function love.mousemoved() mouseMovedT = .15 end
+function love.mousemoved() mouseMovedT = .15; PAD.active = false end   -- 마우스를 움직이면 마우스 조준으로
+
+-- 게임패드 연결·버튼 (배치는 PAD 위 설명 참고)
+function love.joystickadded(j) if j:isGamepad() and not PAD.js then PAD.js = j end end
+function love.joystickremoved(j) if PAD.js == j then PAD.js, PAD.active = nil, false end end
+function love.gamepadpressed(j, b)
+  PAD.js, PAD.active = j, true
+  if state == "select" then
+    -- 스타일 고르기: 십자키로 고르고 A 로 결정, B/Back 은 돌아가기
+    if b == "dpleft" or b == "dpup" then PAD.sel = (PAD.sel - 2) % #STYLES + 1
+    elseif b == "dpright" or b == "dpdown" then PAD.sel = PAD.sel % #STYLES + 1
+    elseif b == "a" or b == "start" then chooseStyle(PAD.sel)
+    elseif b == "b" or b == "back" then love.keypressed("tab") end
+    return
+  end
+  if state == "play" then
+    if b == "y" or b == "rightshoulder" then pressBtn(2)        -- (공격 X·RT 는 love.update 에서 누른 순간을 본다)
+    elseif b == "a" or b == "leftshoulder" then doDash(player)
+    elseif b == "start" then love.keypressed("escape")
+    elseif b == "back" then PAD.sel = styleIdx; love.keypressed("tab") end
+  elseif state == "pause" then
+    if b == "start" or b == "b" then state = "play"
+    elseif b == "back" then newGame(); state = "play" end
+  elseif state == "dead" then
+    if b == "a" or b == "start" then newGame(); state = "play" end
+  end
+end
