@@ -2094,6 +2094,11 @@ local SPR = {
   row = { E = 3, SE = 2, S = 1, SW = 8, W = 7, NW = 6, N = 5, NE = 4 },
   order = { "E", "SE", "S", "SW", "W", "NW", "N", "NE" },  -- 각도 0 부터 45도씩 (y 가 아래)
   walk = 2.7,                               -- p.walk 1 당 걷기 프레임 수 (보통 걸음 약 34장/초, 유저: 아장아장 3배 빠르게)
+  -- 공격 (sprite/blade_attack.png): 칸 200x130, 2칸(준비, 휘두르기) x 4줄(S, E, N, W), 발 = (100, 126)
+  -- 원본은 컨셉/검사_공격/. W 는 E 를, N 휘두르기는 N 준비를 좌우로 뒤집은 것.
+  atk = nil, aq = nil, aw = 200, ah = 130, afx = 100, afy = 126,
+  arow = { E = 2, S = 1, W = 4, N = 3 }, aorder = { "E", "S", "W", "N" },  -- 각도 0 부터 90도씩
+  wind = .3,                                -- 공격 시간 중 준비 칸을 보여 주는 비율 (= 타격 순간)
 }
 function SPR.load()
   local ok, img = pcall(lg.newImage, "sprite/blade_walk.png")
@@ -2107,6 +2112,55 @@ function SPR.load()
   end
   SPR.img, SPR.q = img, q
   print("검사 스프라이트 읽음: sprite/blade_walk.png")
+  local ok2, ai = pcall(lg.newImage, "sprite/blade_attack.png")
+  if ok2 then
+    ai:setFilter("linear", "linear")
+    local aw, ah = ai:getDimensions()
+    local aq = {}
+    for r = 1, 4 do
+      aq[r] = {}
+      for c = 1, 2 do aq[r][c] = lg.newQuad((c - 1) * SPR.aw, (r - 1) * SPR.ah, SPR.aw, SPR.ah, aw, ah) end
+    end
+    SPR.atk, SPR.aq = ai, aq
+    print("검사 공격 스프라이트 읽음: sprite/blade_attack.png")
+  end
+end
+
+-- 검기: 실제 판정(meleeArc 의 range·half)과 같은 크기의 초승달이 오른손 쪽에서 반대쪽으로 쓸고 지나간다
+function SPR.slash(p, al)
+  local s = p.sw
+  local t = s.t / s.dur
+  if t < SPR.wind - .08 then return end
+  local grow = min(1, (t - (SPR.wind - .08)) / .22)
+  local fade = t < .55 and 1 or max(0, 1 - (t - .55) / .45)
+  local R = s.range + .3                     -- 적 몸 반지름까지 닿는 곳
+  local side = s.side or 1
+  local a0 = s.dir + s.half * side           -- 캐릭터 오른쪽 (y 가 아래라 +90도 쪽)
+  local a1 = s.dir - s.half * side
+  local head = a0 + (a1 - a0) * (1 - (1 - grow) ^ 2)
+  local N, z = 20, .45
+  local outer = {}
+  lg.setBlendMode("add")
+  for i = 0, N do
+    local u = i / N
+    local b = a0 + (head - a0) * u
+    local w = R * .55 * u ^ .8               -- 꼬리는 가늘고 칼끝 쪽(머리)은 두껍다
+    local ox, oy = proj(p.x + cos(b) * R, p.y + sin(b) * R, z)
+    local ix, iy = proj(p.x + cos(b) * (R - w), p.y + sin(b) * (R - w), z)
+    outer[#outer + 1] = { ox, oy, ix, iy, u }
+  end
+  for i = 1, N do
+    local q0, q1 = outer[i], outer[i + 1]
+    lg.setColor(.55, .8, 1, al * fade * (.12 + .5 * q1[5]))
+    lg.polygon("fill", q0[1], q0[2], q1[1], q1[2], q1[3], q1[4], q0[3], q0[4])
+  end
+  local line = {}
+  for i = 1, N + 1 do line[#line + 1] = outer[i][1]; line[#line + 1] = outer[i][2] end
+  lg.setColor(.9, .97, 1, al * fade * .9)
+  lg.setLineWidth(2.5)
+  lg.line(line)
+  lg.setBlendMode("alpha")
+  lg.setColor(1, 1, 1, 1)
 end
 
 function SPR.draw(p, al)
@@ -2116,7 +2170,16 @@ function SPR.draw(p, al)
   local col = p.moving and (floor(p.walk * SPR.walk) % 8 + 1) or 9
   local s = SPR.px / CS                    -- drawPlayer 가 이미 CS 배로 키워 둠
   if p.flash > 0 then lg.setColor(1, .55, .55, al) else lg.setColor(1, 1, 1, al) end
-  lg.draw(SPR.img, SPR.q[row][col], 0, 0, 0, s, s, SPR.fx, SPR.fy)
+  local sw = p.sw
+  if SPR.atk and sw and not p.blocking then
+    -- 공격: 4방향 중 가까운 쪽. 준비 → 휘두르기 (2타 역베기는 거꾸로, 회전베기는 휘두르기 칸으로 돈다)
+    local ar = SPR.arow[SPR.aorder[floor(a / (pi / 2) + .5) % 4 + 1]]
+    local ac = (sw.spin or sw.t >= sw.dur * SPR.wind) and 2 or 1
+    if sw.side == -1 and not sw.spin then ac = 3 - ac end
+    lg.draw(SPR.atk, SPR.aq[ar][ac], 0, 0, 0, s, s, SPR.afx, SPR.afy)
+  else
+    lg.draw(SPR.img, SPR.q[row][col], 0, 0, 0, s, s, SPR.fx, SPR.fy)
+  end
   lg.setColor(1, 1, 1, 1)
 end
 
@@ -2149,6 +2212,7 @@ local function drawPlayer(alphaMul)
   if SPR.img and p.style.id == "blade" then SPR.draw(p, al)
   else Rig.withAlpha(al, Rig.human, o) end
   lg.pop()
+  if SPR.img and p.style.id == "blade" and p.sw and not p.sw.spin then SPR.slash(p, alphaMul or 1) end
 end
 
 local enemyO = {}
@@ -2633,6 +2697,7 @@ local function autoStep(dt)
     A.mouse[2] = bd < 4 and (A.t % 3) < 1
     A.mouse[1] = bd < 2.4 and not A.mouse[2]
     if player.sw and player.sw.spin and player.sw.t > .12 and not A.spinShot then A.spinShot = true; lg.captureScreenshot("auto_blade_spin.png") end
+    if player.sw and not player.sw.spin and player.sw.t > player.sw.dur * .45 and not A.slashShot then A.slashShot = true; lg.captureScreenshot("auto_blade_slash.png") end
     if player.blocking and player.blockFlash > 0 and not A.blockShot then A.blockShot = true; lg.captureScreenshot("auto_blade_block.png") end
   elseif id == "guard" then A.mouse[1] = bd < 2.4
   elseif id == "archer" then A.mouse[1] = (A.t * 1.3) % 1 < .75
