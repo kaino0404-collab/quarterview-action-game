@@ -530,10 +530,13 @@ local launchEnemy
 local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 약 4m 날아간다)
 local SPIN_R = 2.1                      -- 검사 3타 회전베기 반경 (m)
 local BLADE_BLOCK_CHIP = .3             -- 칼로 막기: 막아도 받는 피해 비율 (30%)
-BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .2, preMove = 1, atkMove = 1 }  -- (지역 변수 200개 한도 때문에 전역 표)
+BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .3, preMove = 1, atkMove = .4,
+  lunge = 10, spinLunge = 8, gapCd = .4 }  -- (지역 변수 200개 한도 때문에 전역 표)
 -- stop: 검사 공격 히트스톱 켜기 (2026-11-23 유저 "일단 빼 보자" → false. 켜면 휘두르기·회전·내려찍기 첫 타에서 한 번 멈춤)
 -- spinPre: 3타 회전베기 전 텀 (잽잽훅 박자, 2026-11-23 유저). 이 동안 준비 자세로 멈췄다가 돈다
 -- preMove: 그 텀 동안 이동 속도 배율 (유저: "텀 때 이동이 안 된다" → x.25 에서 x1, 도는 동안은 x.25 그대로)
+-- atkMove: 가로베기 중 이동 배율 (x1 → 다시 x.4, 대신 공격마다 파고드는 전진 lunge 10 = 약 1.1m, 예전 6 = 약 .67m)
+-- gapCd: 1·2타 다음 공격까지 .27 → .4초, spinPre .2 → .3초 (유저: 잽잽훅이 빨라 한 대 한 대 느껴지게). 회전베기도 돌 때 spinLunge 8 만큼 파고듦
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3 }
@@ -722,7 +725,7 @@ STYLES = {
   -- 2 검사 -----------------------------------------------------------------
   {
     id = "blade", name = "검사", tag = "리얼타임 액션", hp = 120, speed = 5.2,
-    desc = { "좌클릭  3연격 — 방향키로 움직이며 벤다, 3타는 회전베기", "공격 중 마우스로 방향 조절 · 앞쪽 적 자동 조준", "우클릭  점프 내려찍기 — 클릭한 곳(최대 7m)으로 뛰어올라", "내려앉으며 둘레를 전부 친다 (떠 있는 동안 무적)" },
+    desc = { "좌클릭  3연격 — 벨 때마다 파고든다, 3타는 회전베기", "공격 중 마우스로 방향 조절 · 앞쪽 적 자동 조준", "우클릭  점프 내려찍기 — 클릭한 곳(최대 7m)으로 뛰어올라", "내려앉으며 둘레를 전부 친다 (떠 있는 동안 무적)" },
     blockChip = BLADE_BLOCK_CHIP, noPerfect = true,   -- 막아도 체력이 조금 닳는다 (완벽한 막기 없음)
     update = function(p, dt)
       -- (칼로 막기는 지움 — 유저: 우클릭 = 점프 내려찍기)
@@ -756,7 +759,9 @@ STYLES = {
         if s.spin then
           -- 회전베기: 제자리에서 한 바퀴 돌며 주위를 전부 벤다
           -- 3타 전 텀(s.t 가 음수인 동안): 준비 자세로 멈췄다가, 0 이 되는 순간 휙 돈다 (잽잽훅)
-          if s.t >= 0 and not s.went then s.went = true; play("swing", .25, 1) end
+          if s.t >= 0 and not s.went then s.went = true; play("swing", .25, 1)
+            p.kx, p.ky = p.kx + cos(s.dir) * BLADE.spinLunge, p.ky + sin(s.dir) * BLADE.spinLunge   -- 훅: 돌며 파고듦
+          end
           local q = max(0, min(1, s.t / s.dur))
           p.face = s.dir + (1 - (1 - q) ^ 2) * pi * 2
           -- 칼(검기)이 돌아가며 지나가는 순간에 그 자리의 적을 친다 (예전: 25% 시점에 반경 안 전부 한꺼번에)
@@ -772,14 +777,15 @@ STYLES = {
       end
       if mouseDown(1) and not p.sw and not p.blocking and p.atkCd <= 0 and canAct(p) then
         p.combo = (p.comboT > 0) and (p.combo % 3 + 1) or 1
-        p.comboT = .55
+        p.comboT = BLADE.gapCd + .35                    -- 다음 타를 이어 누를 수 있는 시간 (쿨보다 .35초 길게)
         local spin = p.combo == 3
         local dir = autoTarget(p, p.aim, 3.2, .6)       -- 전방 자동 조준
         p.sw = { t = spin and -BLADE.spinPre or 0, dur = spin and .36 or .22, dir = dir, side = (p.combo == 2) and -1 or 1, spin = spin,
           range = 1.75, half = BLADE.half, dmg = 14, kb = 6, hitSet = {} }
-        p.atkCd = spin and (BLADE.spinPre + .55) or .27
+        p.atkCd = spin and (BLADE.spinPre + .55) or BLADE.gapCd
         p.face = dir
-        -- (공격 시 앞으로 밀려 나가던 전진 6 은 지움 — 유저: 이동은 방향키로만)
+        -- 공격할 때마다 앞으로 파고든다 (전진 힘 BLADE.lunge, 회전베기는 텀이 끝나고 돌 때 BLADE.spinLunge)
+        if not spin then p.kx, p.ky = p.kx + cos(dir) * BLADE.lunge, p.ky + sin(dir) * BLADE.lunge end
         if not spin then play("swing", .25, .8) end   -- 회전베기 소리는 텀이 끝나고 돌 때
       end
     end,
