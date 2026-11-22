@@ -592,7 +592,8 @@ end
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3,
-  padMin = 1.5, padGrow = 10, steer = .85, nudge = 6.5, padTurn = 3, padFix = .3 }
+  padMin = 1.5, padGrow = 10, steer = .85, nudge = 6.5, padTurn = 3, padFix = .3, fixSpd = 6, fixMax = 1.0 }
+-- fixSpd·fixMax: 패드 초반 방향 보정을 부드럽게 — 초당 6 라디안씩, 뛸 때 방향에서 최대 1.0 라디안(약 57도)까지
 -- padFix: 패드로 뛴 뒤 이 비율(점프 시간 30%)까지는 방향을 스틱이 가리키는 쪽으로 바로 보정 (조준 회전 지연 때문, 유저 2026-11-23)
 -- padGrow(10 m/초)·steer(85%): 패드로 뛴 방향으로 기울이고 있으면 더 멀리 가는 속도·시간
 -- (padMin·nudge·padTurn 은 공중 조정을 되돌리면서 안 씀)
@@ -844,10 +845,15 @@ STYLES = {
         -- 패드만: 조준이 부드럽게 따라 도는 시간 때문에 누른 순간 방향이 늦을 수 있어서,
         --   점프 초반(LEAP.padFix 30% 까지)엔 스틱이 지금 가리키는 방향으로 바로 맞춰 준다 (거리는 뛸 때 정한 그대로)
         if L.pad and k < LEAP.padFix then
+          -- 확 꺾지 않고 스틱 쪽으로 초당 LEAP.fixSpd 라디안씩 따라잡되, 뛸 때 방향에서 LEAP.fixMax 라디안까지만
+          --   (유저: "급격하게 틀어지면 안 돼, 회전 시간 때문에 늦게 뛴 만큼 그 방향으로 보정")
           local a = LEAP.padAim()
           if a then
-            L.dir = a
-            L.x1, L.y1 = LEAP.land(L.x0, L.y0, cos(a), sin(a), L.dist)
+            local na = turn(L.dir, a, LEAP.fixSpd * dt)
+            local off = angDiff(na, L.dir0)
+            if abs(off) > LEAP.fixMax then na = L.dir0 + (off > 0 and LEAP.fixMax or -LEAP.fixMax) end
+            L.dir = na
+            L.x1, L.y1 = LEAP.land(L.x0, L.y0, cos(na), sin(na), L.dist)
           end
         end
         -- 패드: 뛴 방향으로 스틱(왼스틱·십자키)을 기울이고 있으면 더 멀리 (공중 LEAP.steer 85% 까지, 초당 LEAP.padGrow m, 최대 7m)
@@ -855,7 +861,12 @@ STYLES = {
         if L.pad and k < LEAP.steer then
           local nx, ny, held = PAD.dir()
           if held and nx * cos(L.dir) + ny * sin(L.dir) > .5 then
-            L.dist = min(LEAP.max, L.dist + LEAP.padGrow * dt)
+            -- 기울인 정도(0~1, 십자키는 1) x 기울이고 있는 시간만큼 멀어짐 (유저: "기울인 각도의 시간에 따라 더 길게")
+            local sx, sy = PAD.stick("left")
+            local tilt = min(1, math.sqrt(sx * sx + sy * sy))
+            local j = PAD.js
+            if j:isGamepadDown("dpleft", "dpright", "dpup", "dpdown") then tilt = 1 end
+            L.dist = min(LEAP.max, L.dist + LEAP.padGrow * tilt * dt)
             L.x1, L.y1 = LEAP.land(L.x0, L.y0, cos(L.dir), sin(L.dir), L.dist)
           end
         end
@@ -921,12 +932,12 @@ STYLES = {
       if b == 2 and p.cdR <= 0 and canAct(p) and not p.sw and not p.leap and PAD.active then
         -- 패드 (처음 방식): 조준점까지 뛴다 — 거리 = 오른스틱 기울인 만큼 1.5~7m (오른스틱 안 쓰면 4m),
         --   방향 = 스틱이 지금 가리키는 쪽 (부드럽게 도는 조준이 아직 못 따라왔어도), 점프 초반엔 계속 보정 (update 쪽 LEAP.padFix)
-        local a = LEAP.padAim() or PAD.aim
+        local a = PAD.aim                                -- 뛸 때는 조준 방향 그대로, 늦은 만큼은 점프 초반에 부드럽게 보정
         local d0 = PAD.dist
         local lx, ly = LEAP.land(p.x, p.y, cos(a), sin(a), d0)
         local dd = len(lx - p.x, ly - p.y)
         p.leap = { t = 0, dur = LEAP.dur + dd * .03, x0 = p.x, y0 = p.y, x1 = lx, y1 = ly,
-          h = LEAP.h + dd * .12, dir = a, pad = true, dist = d0 }
+          h = LEAP.h + dd * .12, dir = a, dir0 = a, pad = true, dist = d0 }
         p.cdR = LEAP.cd
         p.face = a
         play("dash", .1, .8); play("swing", .15, .7)
@@ -3332,7 +3343,7 @@ local function autoStep(dt)
   if A.padHold and player.leap and player.leap.pad then A.padLeap = player.leap end
   if A.padHold and A.padLeap and not player.leap then
     local L = A.padLeap
-    print(("[자동테스트] 패드: 뛴 직후 아래로 계속 누름 → 내려앉은 방향 %.0f도 (아래 = 90), 거리 %.1fm (5 에서 늘어남, 최대 7)"):format(
+    print(("[자동테스트] 패드: 오른쪽(0도)으로 뛴 직후 아래(90도)로 계속 누름 → 내려앉은 방향 %.0f도 (부드럽게, 최대 57도까지만), 거리 %.1fm (5 에서 늘어남, 최대 7)"):format(
       math.deg(atan2(L.y1 - L.y0, L.x1 - L.x0)), len(L.x1 - L.x0, L.y1 - L.y0)))
     A.padHold, A.padLeap = false, nil
   end
