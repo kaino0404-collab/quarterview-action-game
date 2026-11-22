@@ -323,7 +323,8 @@ end
 --   왼쪽 스틱/십자키 = 이동, 오른쪽 스틱 = 조준 (기울인 만큼 멀리: 검사 내려찍기 거리 1.5~7m)
 --   X 또는 RT = 좌클릭(공격), Y 또는 RB = 우클릭(스킬), A 또는 LB = 회피 덤블링, Start = 일시정지, Back = 스타일 고르기
 --   패드를 만지면 패드 모드(조준을 스틱으로), 마우스를 움직이면 마우스 모드로 돌아간다
-PAD = { js = nil, active = false, aim = 0, dist = 4, rt = false, sel = 1, dead = .25 }
+PAD = { js = nil, active = false, aim = 0, dist = 4, rt = false, sel = 1, dead = .25, turnSpd = 12 }
+-- turnSpd: 패드 조준이 도는 속도 (라디안/초, 12 = 반 바퀴 약 .26초) — 2026-11-23 유저 "패드로 부드럽게 회전"
 function PAD.axis(name)
   if not PAD.js then return 0 end
   local v = PAD.js:getGamepadAxis(name)
@@ -1320,18 +1321,27 @@ local function updatePlayer(dt)
   p.atkCd = p.atkCd - dt
   p.comboT = p.comboT - dt
 
-  -- 패드 조준: 오른쪽 스틱을 기울이면 그 방향 (기울인 만큼 멀리), 놓으면 걷는 방향, 서 있으면 마지막 방향
+  -- 패드 조준: 오른쪽 스틱을 기울이면 그 방향 (기울인 만큼 멀리), 놓으면 걷는 방향(왼스틱·십자키), 서 있으면 마지막 방향
+  --   조준은 바로 튀지 않고 초당 PAD.turnSpd 라디안으로 부드럽게 돈다 (그림은 8방향이어도 공격·검기는 그 사이 각도로도 나감)
   if PAD.js and not AUTO then
     local rx, ry = PAD.axis("rightx"), PAD.axis("righty")
     local lx, ly = PAD.axis("leftx"), PAD.axis("lefty")
     local rm = len(rx, ry)
+    local want
     if rm > .3 then
       PAD.active = true
-      PAD.aim, PAD.dist = atan2(ry * (1 / KY), rx), 1.5 + 5.5 * min(1, (rm - .3) / .6)
-    elseif PAD.active and len(lx, ly) > .3 then
-      PAD.aim, PAD.dist = atan2(ly * (1 / KY), lx), 4
+      want, PAD.dist = atan2(ry * (1 / KY), rx), 1.5 + 5.5 * min(1, (rm - .3) / .6)
+    elseif PAD.active then
+      local nx, ny, held = PAD.dir()
+      if held then want, PAD.dist = atan2(ny, nx), 4 end
     end
+    if want then PAD.aim = turn(PAD.aim, want, PAD.turnSpd * dt) end
     if lx ~= 0 or ly ~= 0 then PAD.active = true end
+    -- 오른스틱으로 조준하는 동안엔 몸도 조준 쪽으로 부드럽게 돈다 (걸어도 조준 쪽을 봄)
+    PAD.aiming = rm > .3
+    if PAD.aiming and not p.sw and not p.leap and not p.dash then p.face = turn(p.face, PAD.aim, PAD.turnSpd * dt) end
+  else
+    PAD.aiming = false
   end
   local mx, my = mouseWorld(1)
   p.aim = atan2(my - p.y, mx - p.x)
@@ -1382,7 +1392,7 @@ local function updatePlayer(dt)
     if p.moving then
       p.walk = p.walk + dt * spd * 2.4
       local busy = p.sw or p.pu or p.kk or p.charging or p.blocking or p.holdThrow or p.gcast > 0 or p.dashSlash or p.targeting or p.castT > 0
-      if not busy then p.face = turn(p.face, atan2(dy, dx), dt * 14) end
+      if not busy and not PAD.aiming then p.face = turn(p.face, atan2(dy, dx), dt * 14) end   -- (패드 오른스틱 조준 중엔 조준 쪽)
     end
   end
   p.x, p.y = p.x + p.kx * dt, p.y + p.ky * dt
@@ -2293,9 +2303,19 @@ local function drawGroundMarks()
     end
   end
   if state == "play" then
-    if PAD.active and not p.leap and p.hp > 0 then   -- 패드 조준점 (오른스틱으로 정한 곳, 내려찍기는 여기로 뛴다)
-      local ax, ay = p.x + cos(PAD.aim) * PAD.dist, p.y + sin(PAD.aim) * PAD.dist
-      lg.setColor(1, 1, 1, .4); lg.setLineWidth(2); groundCircle("line", ax, ay, .3)
+    if PAD.active and not p.leap and p.hp > 0 then
+      -- 패드 에임: 캐릭터 눈앞(1.3m)에 동그라미 + 몸에서 이어지는 짧은 점선 (8방향 사이 각도도 그대로 보임)
+      local a = PAD.aim
+      local ax, ay = p.x + cos(a) * 1.3, p.y + sin(a) * 1.3
+      lg.setColor(1, 1, 1, .75); lg.setLineWidth(2.5); groundCircle("line", ax, ay, .28)
+      lg.setColor(1, 1, 1, .2); groundCircle("fill", ax, ay, .28)
+      lg.setColor(1, 1, 1, .45); lg.setLineWidth(2)
+      for i = 0, 2 do
+        local d0, d1 = .5 + i * .2, .6 + i * .2
+        local x0, y0 = proj(p.x + cos(a) * d0, p.y + sin(a) * d0)
+        local x1, y1 = proj(p.x + cos(a) * d1, p.y + sin(a) * d1)
+        lg.line(x0, y0, x1, y1)
+      end
     end
     if p.leap then   -- 검사 점프 내려찍기: 내려앉을 곳과 맞는 범위
       local k = p.leap.t / p.leap.dur
@@ -3211,6 +3231,18 @@ local function autoStep(dt)
   if A.styleT >= 20 and A.styleT - dt < 20 then DEV.run("god"); DEV.run("spawn"); print("[자동테스트] 개발자: 무적 켬 + 적 생성") end
   if A.styleT >= 22 and A.styleT - dt < 22 then lg.captureScreenshot("auto_dev.png") end
   if A.styleT >= 24 and A.styleT - dt < 24 then DEV.run("kill"); DEV.run("god"); print("[자동테스트] 개발자: 적 제거(웨이브 멈춤) + 무적 끔") end
+  -- 가짜 패드 에임: 8방향 사이 각도(23도, 오른쪽과 오른아래 사이)로 조준하고 베기 → 눈앞 동그라미·검기 각도 확인
+  if A.styleT >= 25.3 and A.styleT - dt < 25.3 then
+    PAD.js = { isGamepad = function() return true end, getGamepadAxis = function() return 0 end, isGamepadDown = function() return false end }
+    PAD.active, PAD.aim = true, .4
+    player.sw, player.atkCd, player.comboT = nil, 0, 0
+  end
+  if A.styleT >= 25.3 and A.styleT < 25.9 and not A.padSw then A.mouse[1] = true end   -- 적이 없어도 한 번 벤다
+  if A.styleT >= 25.3 and A.styleT < 25.9 and player.sw and not A.padSw then
+    A.padSw = true
+    print(("[자동테스트] 패드 에임 %.0f도 → 베기 방향 %.0f도 (8방향이면 0 또는 45)"):format(math.deg(PAD.aim), math.deg(player.sw.dir)))
+  end
+  if A.padSw and player.sw and player.sw.t > player.sw.dur * .45 and not A.padShot then A.padShot = true; lg.captureScreenshot("auto_pad_aim.png") end
   -- 가짜 패드로 패드 코드 한 번씩 지나가 보기 (오른쪽 조준 5m, Y = 스킬, A = 덤블링, X = 공격)
   if A.styleT >= 26 and A.styleT - dt < 26 then
     local fake = { isGamepad = function() return true end, getGamepadAxis = function(_, n) return (n == "triggerright" or (n == "leftx" and A.padHold)) and 1 or 0 end,
