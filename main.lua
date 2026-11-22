@@ -2083,6 +2083,43 @@ local function poseFor(p, o)
   if p.dash then o.face = snap8(atan2(p.dash.dy, p.dash.dx)) end
 end
 
+-- 검사 스프라이트 (아기 공룡 기사): sprite/blade_walk.png
+-- 시트 = 칸 100x120, 9칸(걷기 1~8 + 서기) x 8줄 (S, SE, E, NE, N, NW, W, SW), 발 가운데 = (50, 116)
+-- 원본은 컨셉/검사_걷기/걷기_8방향_시트.png. 그림이 없으면 예전 마네킹을 그린다.
+-- (main 의 지역 변수 200개 한도 때문에 설정은 표 하나에 모음)
+local SPR = {
+  img = nil, q = nil,                       -- 읽은 그림, 칸 [줄][칸]
+  w = 100, h = 120, fx = 50, fy = 116,      -- 칸 크기, 발 가운데
+  px = .52,                                 -- 시트 1px = 화면 px (공룡 키 약 56px, 마네킹 약 52px)
+  row = { E = 3, SE = 2, S = 1, SW = 8, W = 7, NW = 6, N = 5, NE = 4 },
+  order = { "E", "SE", "S", "SW", "W", "NW", "N", "NE" },  -- 각도 0 부터 45도씩 (y 가 아래)
+  walk = .9,                                -- p.walk 1 당 걷기 프레임 수 (보통 걸음 약 11장/초)
+}
+function SPR.load()
+  local ok, img = pcall(lg.newImage, "sprite/blade_walk.png")
+  if not ok then return end
+  img:setFilter("linear", "linear")
+  local iw, ih = img:getDimensions()
+  local q = {}
+  for r = 1, 8 do
+    q[r] = {}
+    for c = 1, 9 do q[r][c] = lg.newQuad((c - 1) * SPR.w, (r - 1) * SPR.h, SPR.w, SPR.h, iw, ih) end
+  end
+  SPR.img, SPR.q = img, q
+  print("검사 스프라이트 읽음: sprite/blade_walk.png")
+end
+
+function SPR.draw(p, al)
+  local a = p.face
+  if p.dash then a = atan2(p.dash.dy, p.dash.dx) end
+  local row = SPR.row[SPR.order[floor(a / (pi / 4) + .5) % 8 + 1]]
+  local col = p.moving and (floor(p.walk * SPR.walk) % 8 + 1) or 9
+  local s = SPR.px / CS                    -- drawPlayer 가 이미 CS 배로 키워 둠
+  if p.flash > 0 then lg.setColor(1, .55, .55, al) else lg.setColor(1, 1, 1, al) end
+  lg.draw(SPR.img, SPR.q[row][col], 0, 0, 0, s, s, SPR.fx, SPR.fy)
+  lg.setColor(1, 1, 1, 1)
+end
+
 local heroO = {}
 local function drawPlayer(alphaMul)
   local p = player
@@ -2109,7 +2146,8 @@ local function drawPlayer(alphaMul)
   end
   local al = (alphaMul or 1)
   if p.inv > 0 and not p.dash and not p.vault and not p.kk and floor(realTime * 20) % 2 == 0 then al = al * .4 end
-  Rig.withAlpha(al, Rig.human, o)
+  if SPR.img and p.style.id == "blade" then SPR.draw(p, al)
+  else Rig.withAlpha(al, Rig.human, o) end
   lg.pop()
 end
 
@@ -2547,6 +2585,7 @@ function love.load(args)
   makeFonts()
   makeSounds()
   loadBgTextures()
+  SPR.load()
   beamSrc = sfx.beam
   shadowCanvas = lg.newCanvas(W, H)
   newGame()

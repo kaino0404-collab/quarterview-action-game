@@ -33,6 +33,11 @@ $bgDir = Join-Path $src "bg"
 if (Test-Path $bgDir) {
   Get-ChildItem $bgDir -File | Where-Object { $_.Extension -match '^\.(png|jpe?g)$' } | ForEach-Object { AddFile $_.FullName ("bg/" + $_.Name) }
 }
+# 캐릭터 스프라이트 (sprite/blade_walk.png 등, 있을 때만)
+$spDir = Join-Path $src "sprite"
+if (Test-Path $spDir) {
+  Get-ChildItem $spDir -File | Where-Object { $_.Extension -match '^\.png$' } | ForEach-Object { AddFile $_.FullName ("sprite/" + $_.Name) }
+}
 $arc.Dispose(); $fs.Dispose()
 $bytes = [IO.File]::ReadAllBytes((Join-Path $love "love.exe")) + [IO.File]::ReadAllBytes($zip)
 
