@@ -592,8 +592,10 @@ end
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3,
-  padMin = 1.5, padGrow = 6.5, steer = .85, nudge = 6.5, padNudge = 25 }
--- (padNudge 10 → 25: 이제 "기울인 만큼의 자리"로 따라가는 속도라 빠르게)
+  padMin = 1.5, padGrow = 10, steer = .85, nudge = 6.5, padTurn = 3 }
+-- padTurn: 패드로 공중에서 방향을 트는 속도 (라디안/초, 3 = .54초 동안 최대 약 90도) — 미세 조정용
+-- padGrow: 패드로 공중에서 누르고 있을 때 멀어지는 속도 6.5 → 10 m/초 (유저 "누르고 있는 만큼 멀리" — 85% 까지 계속 누르면 1.5m → 7m 에 닿게)
+-- (LEAP.padTarget "기울인 정도 x 7m" 방식은 안 씀, 자동 테스트 확인용으로만 남김)
 -- 패드 스틱이 가리키는 내려앉을 곳 (뛴 곳 L.x0, y0 기준, 기울인 정도 x LEAP.max), 안 기울이면 nil
 function LEAP.padTarget(L)
   local sx, sy = PAD.stick("left")
@@ -831,19 +833,19 @@ STYLES = {
         --   공중에 있는 동안(LEAP.steer 85% 까지) 이동 방향(WASD·왼스틱·십자키)을 누르면 내려앉을 곳이 그쪽으로 초당 LEAP.nudge m 움직인다.
         --   앞으로 누르면 멀리, 뒤로 누르면 가까이, 옆으로 누르면 옆으로. 뛴 곳에서 최대 LEAP.max m, 높은 벽 너머로는 못 감
         --   (예전 패드는 "누르면 뛴 방향으로 멀어지기"만 됐음)
-        --   패드는 "기울인 만큼 멀리" (유저): 왼스틱·십자키를 기울인 방향으로, 기울인 정도 x 최대 거리(살짝 = 가까이, 끝까지 = 7m)에
-        --   내려앉을 곳을 둔다 (뛴 곳 기준). 손을 떼면 마지막 자리 그대로. 튀지 않게 초당 LEAP.padNudge m 로 따라감
+        --   패드는 "그 방향으로 누르고 있는 만큼 멀리" (유저): 공중에서 왼스틱·십자키를 누르고 있는 동안
+        --   내려앉을 곳이 누른 방향으로 초당 LEAP.padGrow m 씩 멀어진다 (뛴 곳 기준, 최대 7m). 손을 떼면 그 자리 그대로
+        --   방향은 누른 쪽으로 바로 꺾이지 않고 초당 LEAP.padTurn 라디안으로 조금씩 돈다 (유저: "패드는 방향도 미세 조정")
         local ux, uy, sp = p.mvx, p.mvy, LEAP.nudge
-        local padT = (PAD.active and PAD.js and not AUTO) and LEAP.padTarget(L) or nil
-        if padT then
-          local dx, dy = padT[1] - L.x1, padT[2] - L.y1
-          local d = len(dx, dy)
-          local step = LEAP.padNudge * dt
-          if d > .01 then
-            local s = min(d, step)
-            ux, uy, sp = dx / d * s / dt, dy / d * s / dt, 1
-          else ux, uy = 0, 0 end
-        elseif PAD.active and PAD.js and not AUTO then ux, uy = 0, 0 end
+        if PAD.active and PAD.js and (not AUTO or PAD.test) then
+          ux, uy = 0, 0
+          local nx, ny, held = PAD.dir()
+          if held and k < LEAP.steer then
+            L.dist = min(LEAP.max, (L.dist or LEAP.padMin) + LEAP.padGrow * dt)
+            L.dir = turn(L.dir, atan2(ny, nx), LEAP.padTurn * dt)
+            L.x1, L.y1 = LEAP.land(L.x0, L.y0, cos(L.dir), sin(L.dir), L.dist)
+          end
+        end
         if k < LEAP.steer and (ux ~= 0 or uy ~= 0) then
           local tx, ty = L.x1 + ux * sp * dt, L.y1 + uy * sp * dt
           local dx, dy = tx - L.x0, ty - L.y0
@@ -913,10 +915,9 @@ STYLES = {
     -- 우클릭: 클릭한 곳(최대 LEAP.max m)까지 점프해서 내려찍기. 높은 벽 앞에서 멈추고, 벽 안이면 그 앞 빈 땅에 내린다
     press = function(p, b)
       if b == 2 and p.cdR <= 0 and canAct(p) and not p.sw and not p.leap and PAD.active then
-        -- 패드: 스틱을 기울이고 있으면 기울인 만큼 멀리, 안 기울이면 조준 방향 1.5m 로 뛰기 시작 → 공중에서 기울여 자리 잡기 (update 의 p.leap 쪽)
-        local pt = (PAD.js and not AUTO) and LEAP.padTarget({ x0 = p.x, y0 = p.y }) or nil
-        local a, d0 = PAD.aim, LEAP.padMin
-        if pt then a, d0 = atan2(pt[2] - p.y, pt[1] - p.x), max(.3, len(pt[1] - p.x, pt[2] - p.y)) end
+        -- 패드: 누른 방향(없으면 조준 방향)으로 가까이(1.5m) 뛰기 시작 → 공중에서 누르고 있는 만큼 멀리 (update 의 p.leap 쪽)
+        local nx, ny, held = PAD.dir()
+        local a, d0 = held and atan2(ny, nx) or PAD.aim, LEAP.padMin
         local lx, ly = LEAP.land(p.x, p.y, cos(a), sin(a), d0)
         p.leap = { t = 0, dur = LEAP.dur + LEAP.max * .03, x0 = p.x, y0 = p.y, x1 = lx, y1 = ly,
           h = LEAP.h + LEAP.max * .12, dir = a, pad = true, dist = LEAP.padMin }
@@ -3320,13 +3321,13 @@ local function autoStep(dt)
     love.gamepadpressed(fake, "y")
     print(("[자동테스트] 패드: Y(스킬) 누름 → 점프 %s, 처음 내려앉을 곳까지 %.1fm"):format(tostring(player.leap ~= nil),
       player.leap and len(player.leap.x1 - player.x, player.leap.y1 - player.y) or 0))
-    A.padHold = true                                    -- 공중에서 오른쪽을 계속 누르고 있기
-    A.keys, A.dirT = { d = true }, 2                    -- (자동 테스트 이동은 키 입력이라 D 를 누름)
+    A.padHold = true                                    -- 공중에서 오른쪽을 계속 누르고 있기 (가짜 패드 왼스틱 오른쪽 끝까지)
+    PAD.test = true                                     -- 자동 테스트에서도 패드 경로를 지나가게
   end
   if A.padHold and player.leap and player.leap.pad then A.padLeap = player.leap end
   if A.padHold and A.padLeap and not player.leap then
     print(("[자동테스트] 패드: 공중에서 오른쪽을 누르고 있었더니 %.1fm 날아가 내려앉음 (최대 %d)"):format(len(A.padLeap.x1 - A.padLeap.x0, A.padLeap.y1 - A.padLeap.y0), LEAP.max))
-    A.padHold, A.padLeap = false, nil
+    A.padHold, A.padLeap, PAD.test = false, nil, false
   end
   if A.styleT >= 27 and A.styleT - dt < 27 then love.gamepadpressed(PAD.js, "a"); print("[자동테스트] 패드: A(덤블링) 누름 → 회피 " .. tostring(player.dash ~= nil or player.vault ~= nil)) end
   if A.styleT >= 28 and A.styleT - dt < 28 then PAD.js, PAD.active, PAD.rt = nil, false, false; print("[자동테스트] 패드: 뺌") end
