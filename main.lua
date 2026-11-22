@@ -24,6 +24,8 @@ local SHX, SHY = -.42, .3     -- 그림자 방향 (높이 1m 당)
 Rig.setup(KY, KZ, S / 100)
 
 local AUTO = nil              -- 자동 테스트 (--autotest)
+-- 개발자 버튼 (화면 왼쪽 위: 무적 / 적 제거 / 적 생성). main 지역 변수 200개 한도 때문에 전역 표 하나로.
+DEV = { god = false, hold = false }
 
 -------------------------------------------------------------------------------
 -- 기본
@@ -316,6 +318,10 @@ local function keyDown(...)
 end
 local function mouseDown(b)
   if AUTO then return AUTO.mouse[b] end
+  if DEV.hold then                             -- 개발자 버튼을 누른 클릭은 공격으로 치지 않는다
+    if love.mouse.isDown(1) then return false end
+    DEV.hold = false
+  end
   return love.mouse.isDown(b)
 end
 local function screenToWorld(gx, gy, z)
@@ -363,6 +369,7 @@ local killEnemy
 local function hurtPlayer(dmg, sx, sy, kb, attacker, isProj)
   local p = player
   if state ~= "play" or p.hp <= 0 then return false end
+  if DEV.god then return false end                 -- 개발자: 무적
   if p.inv > 0 or p.dash or p.vault then return false end
   local dx, dy = norm(p.x - sx, p.y - sy)
   -- 방패병: 앞쪽에서 오는 공격은 막는다
@@ -1679,6 +1686,58 @@ local function updateWaves(dt)
   end
 end
 
+-- 개발자 버튼 ----------------------------------------------------------------
+DEV.btns = { { id = "god", w = 84 }, { id = "kill", w = 70 }, { id = "spawn", w = 70 } }
+function DEV.rect(i)
+  local x = 8
+  for j = 1, i - 1 do x = x + DEV.btns[j].w + 6 end
+  return x, 32, DEV.btns[i].w, 24
+end
+function DEV.label(id)
+  if id == "god" then return DEV.god and "무적 켬" or "무적 끔" end
+  return id == "kill" and "적 제거" or "적 생성"
+end
+function DEV.run(id)
+  local p = player
+  if id == "god" then
+    DEV.god = not DEV.god
+    addText(p.x, p.y, DEV.god and "무적 켬 (개발자)" or "무적 끔 (개발자)", { 1, .9, .4 }, true)
+  elseif id == "kill" then
+    -- 지금 있는 적·나오는 중인 적·이번 웨이브 남은 적을 모두 없앤다 (3.5초 뒤 다음 웨이브)
+    for _, e in ipairs(enemies) do
+      if not e.dead then e.lastKb = 8; killEnemy(e) end
+    end
+    spawns, waveQueue = {}, {}
+    addShake(.3)
+    addText(p.x, p.y, "적 제거 (개발자)", { 1, .5, .4 }, true)
+  else
+    -- 캐릭터 주위 4~6m 에 칼잡이·총잡이·돌격병 1마리씩
+    for _, kind in ipairs({ "sword", "gun", "brute" }) do
+      for _ = 1, 40 do
+        local a, d = rnd() * pi * 2, 4 + rnd() * 2
+        local x, y = p.x + cos(a) * d, p.y + sin(a) * d
+        if x > 1.6 and y > 1.6 and x < MAPW - .6 and y < MAPH - .6 and cellH(x, y) == 0 then
+          spawns[#spawns + 1] = { kind = kind, x = x, y = y, t = .6, dur = .6 }
+          break
+        end
+      end
+    end
+    addText(p.x, p.y, "적 생성 (개발자)", { 1, .7, .4 }, true)
+  end
+  play("pick", .1)
+end
+function DEV.click(gx, gy)
+  for i, b in ipairs(DEV.btns) do
+    local x, y, w, h = DEV.rect(i)
+    if gx >= x and gx <= x + w and gy >= y and gy <= y + h then
+      DEV.hold = true
+      DEV.run(b.id)
+      return true
+    end
+  end
+  return false
+end
+
 local function updateFx(dt)
   for i = #pts, 1, -1 do
     local q = pts[i]
@@ -2533,6 +2592,16 @@ local function drawHUD()
   local left = #enemies + #spawns + #waveQueue
   txt(wave > 0 and ("웨이브 " .. wave .. "   ·   남은 적 " .. left) or "준비", 0, 10, fontM, "center", W)
   lg.setColor(.85, .85, .85); txt("처치 " .. kills, 12, 10, fontS)
+  -- 개발자 버튼
+  local mgx, mgy = toGame(love.mouse.getPosition())
+  for i, b in ipairs(DEV.btns) do
+    local x, y, w, h = DEV.rect(i)
+    local on = b.id == "god" and DEV.god
+    local hov = mgx >= x and mgx <= x + w and mgy >= y and mgy <= y + h
+    lg.setColor(on and { .75, .55, .1, .85 } or { 0, 0, 0, hov and .7 or .45 }); lg.rectangle("fill", x, y, w, h, 4)
+    lg.setColor(on and { 1, .85, .3 } or { 1, 1, 1, hov and .8 or .35 }); lg.setLineWidth(1); lg.rectangle("line", x, y, w, h, 4)
+    lg.setColor(1, 1, 1); txt(DEV.label(b.id), x, y + 4, fontS, "center", w)
+  end
   -- 스타일 / 조작 안내
   lg.setColor(0, 0, 0, .45); lg.rectangle("fill", 8, H - 108, 300, 100, 6)
   lg.setColor(.4, .85, 1); txt(st.name .. "  —  " .. st.tag, 18, H - 102, fontM)
@@ -2714,6 +2783,10 @@ local function autoStep(dt)
     newGame(); state = "play"
   end
   if A.styleT >= 12 and A.styleT - dt < 12 then lg.captureScreenshot("auto_" .. STYLES[styleIdx].id .. ".png") end
+  -- 개발자 버튼 기능도 한 번씩 (무적 켜고 끄기, 적 생성, 적 제거)
+  if A.styleT >= 20 and A.styleT - dt < 20 then DEV.run("god"); DEV.run("spawn"); print("[자동테스트] 개발자: 무적 켬 + 적 생성") end
+  if A.styleT >= 22 and A.styleT - dt < 22 then lg.captureScreenshot("auto_dev.png") end
+  if A.styleT >= 24 and A.styleT - dt < 24 then DEV.run("kill"); DEV.run("god"); print("[자동테스트] 개발자: 적 제거 + 무적 끔") end
   -- 맨손: 스트레이트 직후(적이 날아가는 중)를 찍는다
   if player.style.id == "fist" and not A.flyShot then
     for _, e in ipairs(enemies) do
@@ -2824,6 +2897,7 @@ function love.mousepressed(x, y, b)
     end
     return
   end
+  if state == "play" and b == 1 and DEV.click(toGame(x, y)) then return end   -- 개발자 버튼
   pressBtn(b)
 end
 
