@@ -1492,7 +1492,8 @@ local function updateEnemy(e, dt)
         local a = e.aim
         local wx, wy = Rig.toWorld(a, (14 + Rig.RIFLE_LEN) * CS * T.size, 10 * CS, 0)
         projs[#projs + 1] = { kind = "bullet", owner = "e", x = e.x + wx, y = e.y + wy, z = 1.15,
-          vx = cos(a) * 16, vy = sin(a) * 16, dmg = T.dmg, life = 1.4, src = e, trail = {} }
+          vx = cos(a) * 8, vy = sin(a) * 8, dmg = T.dmg, life = 2.8, src = e, trail = {} }
+        -- 총알 속도 16 → 8 m/s (유저: "너무 빨라 반으로"), 사거리 22m 를 그대로 두려고 수명 1.4 → 2.8초
         play("shot", .2, .5)
         e.state, e.t, e.cd = "recover", .35, T.cd * (.8 + rnd() * .4)
       else
