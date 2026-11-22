@@ -530,7 +530,7 @@ local launchEnemy
 local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 약 4m 날아간다)
 local SPIN_R = 2.1                      -- 검사 3타 회전베기 반경 (m)
 local BLADE_BLOCK_CHIP = .3             -- 칼로 막기: 막아도 받는 피해 비율 (30%)
-BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .2, preMove = 1 }  -- (지역 변수 200개 한도 때문에 전역 표)
+BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .2, preMove = 1, atkMove = 1 }  -- (지역 변수 200개 한도 때문에 전역 표)
 -- stop: 검사 공격 히트스톱 켜기 (2026-11-23 유저 "일단 빼 보자" → false. 켜면 휘두르기·회전·내려찍기 첫 타에서 한 번 멈춤)
 -- spinPre: 3타 회전베기 전 텀 (잽잽훅 박자, 2026-11-23 유저). 이 동안 준비 자세로 멈췄다가 돈다
 -- preMove: 그 텀 동안 이동 속도 배율 (유저: "텀 때 이동이 안 된다" → x.25 에서 x1, 도는 동안은 x.25 그대로)
@@ -722,7 +722,7 @@ STYLES = {
   -- 2 검사 -----------------------------------------------------------------
   {
     id = "blade", name = "검사", tag = "리얼타임 액션", hp = 120, speed = 5.2,
-    desc = { "좌클릭  3연격 — 공격 시 전진, 3타는 회전베기(주위 전부)", "공격 중 마우스로 방향 조절 · 앞쪽 적 자동 조준", "우클릭  점프 내려찍기 — 클릭한 곳(최대 7m)으로 뛰어올라", "내려앉으며 둘레를 전부 친다 (떠 있는 동안 무적)" },
+    desc = { "좌클릭  3연격 — 방향키로 움직이며 벤다, 3타는 회전베기", "공격 중 마우스로 방향 조절 · 앞쪽 적 자동 조준", "우클릭  점프 내려찍기 — 클릭한 곳(최대 7m)으로 뛰어올라", "내려앉으며 둘레를 전부 친다 (떠 있는 동안 무적)" },
     blockChip = BLADE_BLOCK_CHIP, noPerfect = true,   -- 막아도 체력이 조금 닳는다 (완벽한 막기 없음)
     update = function(p, dt)
       -- (칼로 막기는 지움 — 유저: 우클릭 = 점프 내려찍기)
@@ -779,9 +779,7 @@ STYLES = {
           range = 1.75, half = BLADE.half, dmg = 14, kb = 6, hitSet = {} }
         p.atkCd = spin and (BLADE.spinPre + .55) or .27
         p.face = dir
-        if not spin then
-          p.kx, p.ky = p.kx + cos(dir) * 6, p.ky + sin(dir) * 6   -- 공격 시 전진 (회전베기는 제자리)
-        end
+        -- (공격 시 앞으로 밀려 나가던 전진 6 은 지움 — 유저: 이동은 방향키로만)
         if not spin then play("swing", .25, .8) end   -- 회전베기 소리는 텀이 끝나고 돌 때
       end
     end,
@@ -861,7 +859,7 @@ STYLES = {
     speedMul = function(p)
       if p.leap then return 0 end
       if p.sw and p.sw.spin and p.sw.t < 0 then return BLADE.preMove end   -- 3타 전 텀: 걸어서 다가갈 수 있게
-      return p.sw and (p.sw.spin and .25 or .4) or 1
+      return p.sw and (p.sw.spin and .25 or BLADE.atkMove) or 1   -- 가로베기 중 이동 x.4 → x1 (방향키로 움직이며 벤다)
     end,
     cdMax = LEAP.cd, rName = "내려찍기",
     pose = function(p, o)
