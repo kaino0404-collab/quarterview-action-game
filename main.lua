@@ -578,8 +578,9 @@ BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .15, preMo
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3,
-  padMin = 1.5, padGrow = 13, steer = .85 }
--- steer: 패드로 방향을 틀 수 있는 시간 (점프 시간의 85% 까지, 예전엔 꼭대기 70% 까지)
+  padMin = 1.5, padGrow = 6.5, steer = .85 }
+-- padGrow: 누르고 있을 때 멀어지는 속도 13 → 6.5 m/s (유저: "거리 조절되는 속도를 반으로")
+-- steer: 패드로 거리를 늘릴 수 있는 시간 (점프 시간의 85% 까지 = 약 .54초 → 끝까지 누르면 약 5m)
 -- 패드로 할 때 (2026-11-23 유저 "점프하는 동안 방향으로 거리 조절, 짧게 기울이면 가깝게, 길게 기울이면 멀리"):
 --   처음엔 padMin 1.5m 앞으로 뛰고, 올라가는 동안(꼭대기 전) 왼스틱·십자키를 누르고 있는 만큼 초당 padGrow 13m 씩 멀어진다 (최대 7m),
 --   방향도 누른 쪽으로 바뀜. 패드 점프 시간·높이는 최대 거리 기준으로 고정 (.63초, 1.9m)
@@ -794,14 +795,13 @@ STYLES = {
         local L = p.leap
         L.t = L.t + dt
         local k = min(1, L.t / L.dur)
-        -- 패드: 공중에 있는 동안(LEAP.steer 85% 까지) 누른 쪽으로 방향을 튼다,
-        --   올라가는 동안(꼭대기 전)엔 누르고 있는 만큼 내려앉을 곳이 점점 멀어진다 (유저: "점프하는 동안 방향도 조절")
+        -- 패드: 공중에 있는 동안(LEAP.steer 85% 까지) 방향을 누르고 있으면 내려앉을 곳이 뛴 방향으로 점점 멀어진다
+        --   방향은 뛸 때 정한 그대로 (유저: "거리 조절만 되도록", 방향 트는 건 뺌)
         if L.pad and k < LEAP.steer then
-          local nx, ny, held = PAD.dir()
+          local _, _, held = PAD.dir()
           if held then
-            if k < LEAP.top then L.dist = min(LEAP.max, L.dist + LEAP.padGrow * dt) end
-            L.dir = atan2(ny, nx)
-            L.x1, L.y1 = LEAP.land(L.x0, L.y0, nx, ny, L.dist)
+            L.dist = min(LEAP.max, L.dist + LEAP.padGrow * dt)
+            L.x1, L.y1 = LEAP.land(L.x0, L.y0, cos(L.dir), sin(L.dir), L.dist)
           end
         end
         local kh = 1 - (1 - min(1, k / .8)) ^ 2          -- 앞으로는 80% 안에 다 간다 (빨리 출발해 느려짐)
