@@ -147,17 +147,18 @@ local function buildMap()
     map[y] = {}
     for x = 1, MAPW do map[y][x] = 0 end
   end
-  rect(1, 1, MAPW, 1, 2.4); rect(1, 1, 1, MAPH, 2.4); rect(MAPW, 1, 1, MAPH, 2.4)
+  -- 넘을 수 없는 벽은 높게 (유저 요청: 외벽 2.4→3.2, 상자 1.8→2.6, 긴 벽 1.6→2.4, 기둥 2.2→3.0)
+  rect(1, 1, MAPW, 1, 3.2); rect(1, 1, 1, MAPH, 3.2); rect(MAPW, 1, 1, MAPH, 3.2)
   rect(1, MAPH, MAPW, 1, .5)                        -- 앞쪽 외벽은 낮게 (가리지 않게)
   -- 큰 상자
-  rect(7, 6, 3, 3, 1.8); rect(32, 6, 3, 3, 1.8); rect(7, 20, 3, 3, 1.8); rect(32, 20, 3, 3, 1.8)
+  rect(7, 6, 3, 3, 2.6); rect(32, 6, 3, 3, 2.6); rect(7, 20, 3, 3, 2.6); rect(32, 20, 3, 3, 2.6)
   -- 긴 벽 (가운데가 뚫림)
-  rect(13, 9, 6, 1, 1.6); rect(23, 9, 6, 1, 1.6); rect(13, 19, 6, 1, 1.6); rect(23, 19, 6, 1, 1.6)
+  rect(13, 9, 6, 1, 2.4); rect(23, 9, 6, 1, 2.4); rect(13, 19, 6, 1, 2.4); rect(23, 19, 6, 1, 2.4)
   -- 넘을 수 있는 낮은 벽
   rect(11, 12, 1, 5, .7); rect(30, 12, 1, 5, .7); rect(18, 14, 6, 1, .7)
   rect(3, 14, 4, 1, .7); rect(35, 14, 4, 1, .7); rect(19, 4, 4, 1, .7); rect(19, 24, 4, 1, .7)
   -- 기둥
-  rect(16, 5, 1, 1, 2.2); rect(25, 5, 1, 1, 2.2); rect(16, 23, 1, 1, 2.2); rect(25, 23, 1, 1, 2.2)
+  rect(16, 5, 1, 1, 3.0); rect(25, 5, 1, 1, 3.0); rect(16, 23, 1, 1, 3.0); rect(25, 23, 1, 1, 3.0)
   -- 바닥 얼룩
   blots = {}
   for _ = 1, 70 do
@@ -1842,7 +1843,7 @@ end
 --   wall_top   벽 윗면 (위에서 내려다본 것)
 --   wall_front 벽 앞면 (정면에서 본 것, 그림 아래쪽이 땅)
 -- 도트 그림: 그림 1픽셀(도트 한 칸) = 화면 BG_DOT 픽셀 (960x540 기준), 흐리지 않게 nearest 로 그린다.
---   그래서 그림 한 장이 덮는 크기(미터) BG_M 은 그림 크기에서 정해진다: 128px 바닥 → 6.4m, 40px 벽 → 2m (캐릭터 키 약 1.8m)
+--   그래서 그림 한 장이 덮는 크기(미터) BG_M 은 그림 크기에서 정해진다: 128px 그림 → 6.4m (캐릭터 키 약 1.8m)
 local BG_DOT = 2
 local BG_NAMES = { "floor", "wall_top", "wall_front" }
 local BG_M = {}
@@ -1879,7 +1880,7 @@ end
 -- 상자 벽 한 칸: 윗면 + (앞이 낮으면) 앞면 + 경계선
 local function wallColors(h)
   if h <= LOW then return { .82, .77, .62 }, { .38, .34, .28 } end   -- 넘을 수 있는 낮은 벽: 밝게
-  if h >= 2.3 then return { .56, .52, .44 }, { .1, .09, .08 } end
+  if h >= 2.9 then return { .56, .52, .44 }, { .1, .09, .08 } end
   return { .74, .67, .55 }, { .12, .1, .09 }
 end
 local function drawCell(x, y)
@@ -1890,7 +1891,7 @@ local function drawCell(x, y)
   local yt1 = ((y + 1) * KY - h * KZ) * S
   local hs = tileH(x, y + 1)
   -- 높은 벽일수록 조금 어둡게 (질감에 곱하는 색)
-  local tint = h <= LOW and 1 or (h >= 2.3 and .78 or .92)
+  local tint = h <= LOW and 1 or (h >= 2.9 and .78 or .92)
   if hs < h then
     local zb = (hs == 99) and 0 or min(hs, h)
     local yb = ((y + 1) * KY - zb * KZ) * S
@@ -1910,13 +1911,7 @@ local function drawCell(x, y)
     lg.setColor(top)
     lg.rectangle("fill", x0, yt0, S, yt1 - yt0)
   end
-  if h <= LOW then
-    -- 넘을 수 있다는 표시 (빗금)
-    lg.setColor(.95, .78, .3, .45)
-    lg.setLineWidth(2)
-    lg.line(x0 + 6, yt1 - 4, x0 + 16, yt0 + 4)
-    lg.line(x0 + 22, yt1 - 4, x0 + 32, yt0 + 4)
-  end
+  -- (넘을 수 있는 낮은 벽의 노란 빗금 표시는 도트 그림체와 안 어울려 지움 — 유저 요청. 낮은 벽은 tint 1 로 더 밝게만 구분)
   lg.setColor(0, 0, 0, .35)
   lg.setLineWidth(1)
   if tileH(x, y - 1) ~= h then lg.line(x0, yt0, x1, yt0) end
