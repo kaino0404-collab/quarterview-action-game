@@ -1793,9 +1793,12 @@ local function startWave(n)
   wave = n
   waveQueue = {}
   local s = 3 + n * 2
-  local g = n >= 2 and floor(n / 2) + 1 or 0
-  g = floor(g / 3 + .5)                -- 총잡이 수 3분의 1 (유저 2026-11-23, 반올림: 웨이브 2~7 = 1, 8~11 = 2 …)
-  local b = floor(n / 3)
+  -- 기대값으로 줄이기: 0.3마리면 30% 확률로 1마리 (내림만 하면 거의 안 나오고, 반올림이면 덜 줄어서)
+  local function cut(x) local f = floor(x); return f + ((rnd() < x - f) and 1 or 0) end
+  -- 총잡이: 원래 floor(n/2)+1 → 5분의 1 (유저 2026-11-23, 3분의 1 → 5분의 1). 웨이브 2~3 은 40%, 4~5 는 60% 확률로 1마리 …
+  local g = cut((n >= 2 and floor(n / 2) + 1 or 0) / 5)
+  -- 돌격병(곰): 원래 floor(n/3) → 10분의 1 (유저 2026-11-23). 웨이브 3~5 는 10%, 6~8 은 20% 확률로 1마리 …
+  local b = cut(floor(n / 3) / 10)
   for _ = 1, s do waveQueue[#waveQueue + 1] = "sword" end
   for _ = 1, g do waveQueue[#waveQueue + 1] = "gun" end
   for _ = 1, b do waveQueue[#waveQueue + 1] = "brute" end
