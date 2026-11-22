@@ -280,12 +280,13 @@ local ACCENT = {
 }
 
 local TYPES = {
-  sword = { name = "칼잡이", hp = 40, speed = 3.1, r = .35, size = 1, col = { .78, .2, .17 }, weapon = "esword",
+  -- 이동 속도 약 25% 줄임 (2026-11-23 유저 "적들의 이동 속도를 줄여"): 칼잡이 3.1 → 2.3, 총잡이 2.7 → 2.0, 돌격병 2.2 → 1.65
+  sword = { name = "칼잡이", hp = 40, speed = 2.3, r = .35, size = 1, col = { .78, .2, .17 }, weapon = "esword",
     range = 1.55, windup = .5, cd = 1.3, dmg = 10, mass = 1, stagger = .3 },
-  gun = { name = "총잡이", hp = 28, speed = 2.7, r = .35, size = .95, col = { .72, .26, .2 }, weapon = "rifle",
+  gun = { name = "총잡이", hp = 28, speed = 2.0, r = .35, size = .95, col = { .72, .26, .2 }, weapon = "rifle",
     range = 9, windup = .8, cd = 2.3, dmg = 9, mass = .9, stagger = .35 },
-  brute = { name = "돌격병", hp = 140, speed = 2.2, r = .5, size = 1.35, col = { .5, .13, .12 }, weapon = "club",
-    range = 1.9, windup = .85, cd = 2.6, dmg = 22, mass = 3, stagger = 0 },
+  brute = { name = "돌격병", hp = 140, speed = 1.65, r = .5, size = 1.35, col = { .5, .13, .12 }, weapon = "club",
+    range = 1.9, windup = 1.3, cd = 2.6, dmg = 22, mass = 3, stagger = 0 },   -- 돌진 준비 .85 → 1.3초 (유저: 돌진 시작 시간을 늘려, 덩치에 맞게)
 }
 
 local STYLES
@@ -541,6 +542,8 @@ BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .15, preMo
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3 }
+-- 돌격병 돌진 (덩치에 맞게 묵직하게, 2026-11-23 유저): 속도 11 → 7 m/s, 시간 .55 → .8초 (거리 약 6m → 5.6m 로 비슷)
+BRUTE_DASH_SPD, BRUTE_DASH_T = 7, .8
 -- 가로베기 각도 반폭 1.05 → 1.5 (약 86도, 그림에서 칼이 오른쪽 옆 → 왼쪽 옆으로 가는 만큼),
 -- 검기가 휘두르기 칸이 나오는 순간(공격 시간 30%)부터 22% 동안 쓸고 지나감
 local function inPunchReach(p, e, dir, range, half)
@@ -1491,7 +1494,7 @@ local function updateEnemy(e, dt)
         play("shot", .2, .5)
         e.state, e.t, e.cd = "recover", .35, T.cd * (.8 + rnd() * .4)
       else
-        e.state, e.t, e.hitDone = "dash", .55, false
+        e.state, e.t, e.hitDone = "dash", BRUTE_DASH_T, false
         play("dash", .1, 1)
       end
     end
@@ -1507,7 +1510,7 @@ local function updateEnemy(e, dt)
     end
   elseif e.state == "dash" then
     e.t = e.t - dt
-    mvx, mvy, spd = cos(e.aim), sin(e.aim), 11
+    mvx, mvy, spd = cos(e.aim), sin(e.aim), BRUTE_DASH_SPD
     if rnd() < .5 then burst(e.x, e.y, .1, 1, { .5, .47, .35 }, 1.5, 4, .5) end
     if not e.hitDone and d < e.r + p.r + .2 then
       if hurtPlayer(T.dmg, e.x, e.y, 13, e, false) == "perfect" then e.state = "chase" end
