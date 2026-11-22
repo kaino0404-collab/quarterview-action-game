@@ -370,7 +370,7 @@ local function hurtPlayer(dmg, sx, sy, kb, attacker, isProj)
   local p = player
   if state ~= "play" or p.hp <= 0 then return false end
   if DEV.god then return false end                 -- 개발자: 무적
-  if p.inv > 0 or p.dash or p.vault then return false end
+  if p.inv > 0 or p.dash or p.vault or p.leap then return false end   -- (검사 점프 내려찍기 중엔 무적)
   local dx, dy = norm(p.x - sx, p.y - sy)
   -- 방패병: 앞쪽에서 오는 공격은 막는다
   if p.blocking then
@@ -474,7 +474,7 @@ end
 -------------------------------------------------------------------------------
 -- 전투 스타일 6가지
 -------------------------------------------------------------------------------
-local function canAct(p) return not p.dash and not p.vault and p.stagger <= 0 and p.hp > 0 end
+local function canAct(p) return not p.dash and not p.vault and not p.leap and p.stagger <= 0 and p.hp > 0 end
 
 -- 전방 자동 조준: 앞쪽 부채꼴 안의 가장 가까운 적 쪽으로
 local function autoTarget(p, dir, range, half)
@@ -531,6 +531,9 @@ local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 
 local SPIN_R = 2.1                      -- 검사 3타 회전베기 반경 (m)
 local BLADE_BLOCK_CHIP = .3             -- 칼로 막기: 막아도 받는 피해 비율 (30%)
 BLADE = { half = 1.5, wind = .3, sweep = .22 }  -- (지역 변수 200개 한도 때문에 전역 표)
+-- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
+-- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
+LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3 }
 -- 가로베기 각도 반폭 1.05 → 1.5 (약 86도, 그림에서 칼이 오른쪽 옆 → 왼쪽 옆으로 가는 만큼),
 -- 검기가 휘두르기 칸이 나오는 순간(공격 시간 30%)부터 22% 동안 쓸고 지나감
 local function inPunchReach(p, e, dir, range, half)
@@ -716,15 +719,34 @@ STYLES = {
   -- 2 검사 -----------------------------------------------------------------
   {
     id = "blade", name = "검사", tag = "리얼타임 액션", hp = 120, speed = 5.2,
-    desc = { "좌클릭  3연격 — 공격 시 전진, 3타는 회전베기(주위 전부)", "공격 중 마우스로 방향 조절 · 앞쪽 적 자동 조준", "우클릭 누르기  칼로 막기 — 공격·투사체를 막지만", "막을 때마다 체력이 조금 닳는다" },
+    desc = { "좌클릭  3연격 — 공격 시 전진, 3타는 회전베기(주위 전부)", "공격 중 마우스로 방향 조절 · 앞쪽 적 자동 조준", "우클릭  점프 내려찍기 — 클릭한 곳(최대 7m)으로 뛰어올라", "내려앉으며 둘레를 전부 친다 (떠 있는 동안 무적)" },
     blockChip = BLADE_BLOCK_CHIP, noPerfect = true,   -- 막아도 체력이 조금 닳는다 (완벽한 막기 없음)
     update = function(p, dt)
-      -- 칼로 막기: 우클릭을 누르는 동안 앞쪽에서 오는 공격·투사체를 막는다 (체력은 조금 닳음)
-      local want = mouseDown(2) and canAct(p) and not p.sw
-      if want and not p.blocking then p.blockStart = gameTime end
-      p.blocking = want
-      if p.blocking then p.face = turn(p.face, p.aim, dt * 9) end
+      -- (칼로 막기는 지움 — 유저: 우클릭 = 점프 내려찍기)
+      p.blocking = false
       p.blockFlash = max(0, p.blockFlash - dt)
+      -- 점프 내려찍기: 떠올라 날아가다(70%) 꼭대기에서 땅으로 쾅 (30%), 내려앉는 곳 둘레를 전부 친다
+      if p.leap then
+        local L = p.leap
+        L.t = L.t + dt
+        local k = min(1, L.t / L.dur)
+        local kh = 1 - (1 - min(1, k / .8)) ^ 2          -- 앞으로는 80% 안에 다 간다 (빨리 출발해 느려짐)
+        p.x, p.y = lerp(L.x0, L.x1, kh), lerp(L.y0, L.y1, kh)
+        if k < LEAP.top then p.z = L.h * sin(k / LEAP.top * pi / 2)
+        else p.z = L.h * (1 - ((k - LEAP.top) / (1 - LEAP.top)) ^ 2) end   -- 내려올 땐 점점 빨리 (내려찍기)
+        p.face = L.dir
+        p.moving = false
+        if k >= 1 then
+          p.leap, p.z = nil, 0
+          p.x, p.y = L.x1, L.y1
+          blast(p.x, p.y, LEAP.r, LEAP.dmg, LEAP.kb, LEAP.stop)
+          fx[#fx + 1] = { kind = "ring", x = p.x, y = p.y, r = LEAP.r + .3, t = 0, dur = .35, col = { .7, .9, 1 } }
+          burst(p.x, p.y, .1, 16, { .6, .5, .35 }, 4, 5, .45)
+          addShake(.5)
+          play("heavy", .1, .8)
+          p.atkCd = max(p.atkCd, .15)
+        end
+      end
       if p.sw then
         local s = p.sw
         s.t = s.t + dt
@@ -758,7 +780,29 @@ STYLES = {
         play("swing", .25, spin and 1 or .8)
       end
     end,
-    press = function() end,
+    -- 우클릭: 클릭한 곳(최대 LEAP.max m)까지 점프해서 내려찍기. 높은 벽 앞에서 멈추고, 벽 안이면 그 앞 빈 땅에 내린다
+    press = function(p, b)
+      if b == 2 and p.cdR <= 0 and canAct(p) and not p.sw and not p.leap then
+        local mx, my = mouseWorld(0)
+        local dx, dy = mx - p.x, my - p.y
+        local d = len(dx, dy)
+        local nx, ny = d > .01 and dx / d or cos(p.face), d > .01 and dy / d or sin(p.face)
+        d = min(d, LEAP.max)
+        local lx, ly = p.x, p.y
+        for i = 1, floor(d / .1) do
+          local x, y = p.x + nx * i * .1, p.y + ny * i * .1
+          local h = cellH(x, y)
+          if h > LOW then break end                     -- 높은 벽은 못 넘는다 (낮은 벽 위로는 넘어감)
+          if h == 0 then lx, ly = x, y end
+        end
+        local dd = len(lx - p.x, ly - p.y)
+        p.leap = { t = 0, dur = LEAP.dur + dd * .03, x0 = p.x, y0 = p.y, x1 = lx, y1 = ly,
+          h = LEAP.h + dd * .12, dir = atan2(ny, nx) }
+        p.cdR = LEAP.cd
+        p.face = p.leap.dir
+        play("dash", .1, .8); play("swing", .15, .7)
+      end
+    end,
     -- 검기 머리(칼)가 간 각도. 그림(SPR.slash)과 판정(sweepHit)이 같은 값을 쓴다
     --   가로베기: 공격 시간의 BLADE.wind(타격 칸으로 바뀌는 순간)부터 BLADE.sweep 동안 a0 → a1 (빠르게 시작해 느려짐)
     --   회전베기: 처음부터 끝까지 한 바퀴, 칼은 몸 방향보다 90도 뒤(그림의 휘두르기 칸 칼 위치)
@@ -807,8 +851,8 @@ STYLES = {
         end
       end
     end,
-    speedMul = function(p) return p.blocking and .5 or (p.sw and (p.sw.spin and .25 or .4) or 1) end,
-    rName = "칼로 막기",
+    speedMul = function(p) return p.leap and 0 or (p.sw and (p.sw.spin and .25 or .4) or 1) end,
+    cdMax = LEAP.cd, rName = "내려찍기",
     pose = function(p, o)
       if p.blocking then o.crouch = 7 end
       local hipU, chF, chU = Rig.body(o.crouch, o.lean)
@@ -1229,8 +1273,8 @@ local function updatePlayer(dt)
   p.x, p.y = p.x + p.kx * dt, p.y + p.ky * dt
   local k = max(0, 1 - dt * 9)
   p.kx, p.ky = p.kx * k, p.ky * k
-  if not p.vault then collide(p, 0) end
-  if not p.vault and not p.kk then p.z = 0 end      -- 슈퍼맨 펀치가 끊겨도 땅으로
+  if not p.vault and not p.leap then collide(p, 0) end
+  if not p.vault and not p.kk and not p.leap then p.z = 0 end      -- 슈퍼맨 펀치가 끊겨도 땅으로
 
   st.update(p, dt)
 
@@ -2129,6 +2173,12 @@ local function drawGroundMarks()
     end
   end
   if state == "play" then
+    if p.leap then   -- 검사 점프 내려찍기: 내려앉을 곳과 맞는 범위
+      local k = p.leap.t / p.leap.dur
+      lg.setColor(.7, .9, 1, .85); lg.setLineWidth(2.5)
+      groundCircle("line", p.leap.x1, p.leap.y1, LEAP.r * (1.25 - .25 * k))
+      lg.setColor(.7, .9, 1, .1 + .15 * k); groundCircle("fill", p.leap.x1, p.leap.y1, LEAP.r)
+    end
     if p.targeting then
       lg.setColor(1, .25, .15, .9); lg.setLineWidth(2.5)
       groundCircle("line", p.tx, p.ty, 2.6)
@@ -2284,7 +2334,12 @@ function SPR.draw(p, al)
   local s = SPR.px / CS                    -- drawPlayer 가 이미 CS 배로 키워 둠
   if p.flash > 0 then lg.setColor(1, .55, .55, al) else lg.setColor(1, 1, 1, al) end
   local sw = p.sw
-  if SPR.atk and sw and not p.blocking then
+  if SPR.atk and p.leap then
+    -- 점프 내려찍기: 올라가는 동안 준비 칸(칼을 뒤로), 꼭대기부터 휘두르기 칸(내려찍음)
+    local ar = SPR.arow[SPR.aorder[floor(a / (pi / 2) + .5) % 4 + 1]]
+    local ac = (p.leap.t / p.leap.dur >= LEAP.top) and 2 or 1
+    lg.draw(SPR.atk, SPR.aq[ar][ac], 0, 0, 0, s, s, SPR.afx, SPR.afy)
+  elseif SPR.atk and sw and not p.blocking then
     -- 공격: 4방향 중 가까운 쪽. 준비 → 휘두르기 (2타 역베기는 거꾸로, 회전베기는 휘두르기 칸으로 돈다)
     local ar = SPR.arow[SPR.aorder[floor(a / (pi / 2) + .5) % 4 + 1]]
     local ac = (sw.spin or sw.t >= sw.dur * SPR.wind) and 2 or 1
@@ -2948,9 +3003,13 @@ local function autoStep(dt)
     if bd < 2 and rnd() < .03 then pressBtn(2) end
     if player.kk and player.kk.t > .1 and not A.kickShot then A.kickShot = true; lg.captureScreenshot("auto_fist_kick.png") end
   elseif id == "blade" then
-    -- 가까우면 베고, 가끔은 우클릭으로 막는다 (막기 중엔 공격 안 함)
-    A.mouse[2] = bd < 4 and (A.t % 3) < 1
-    A.mouse[1] = bd < 2.4 and not A.mouse[2]
+    -- 가까우면 베고, 조금 떨어진 적에겐 가끔 우클릭 점프 내려찍기
+    A.mouse[2] = false
+    A.mouse[1] = bd < 2.4
+    if not player.leap and player.cdR <= 0 and bd > 2.5 and bd < 7 and rnd() < .05 then pressBtn(2) end
+    if player.leap and player.leap.t > player.leap.dur * .85 and not A.leapShot then A.leapShot = true; lg.captureScreenshot("auto_blade_leap.png") end
+    if A.wasLeap and not player.leap then A.leaps = (A.leaps or 0) + 1; print(("[자동테스트] 점프 내려찍기 착지 %d번째, 위치 %.1f, %.1f"):format(A.leaps, player.x, player.y)) end
+    A.wasLeap = player.leap ~= nil
     if player.sw and player.sw.spin and player.sw.t > .12 and not A.spinShot then A.spinShot = true; lg.captureScreenshot("auto_blade_spin.png") end
     if player.sw and not player.sw.spin and player.sw.t > player.sw.dur * .45 and not A.slashShot then A.slashShot = true; lg.captureScreenshot("auto_blade_slash.png") end
     if player.blocking and player.blockFlash > 0 and not A.blockShot then A.blockShot = true; lg.captureScreenshot("auto_blade_block.png") end
