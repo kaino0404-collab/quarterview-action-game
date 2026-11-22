@@ -45,7 +45,7 @@
   - 팔다리는 마디별로 따로 그린다 (이어 그리면 화면에서 접히는 각도일 때 꺾임 처리가 긴 가시로 튀어나오는 버그가 있었음).
 - 스타일은 `main.lua` 의 `STYLES` 표: `update / press / speedMul / pose / gauge / cdMax / rName`.
 - 적 날아가기: `launchEnemy` → `updateFlying` → `bowl`(다른 적과 충돌 연쇄), 벽에 박히면 벽꽝.
-- 바꾼 뒤엔 `lovec.exe . --autotest` 로 자동 테스트를 (**지금 작업 중인 스타일만** 돌린다 — 유저 요청: "테스트할 때 다른 무기는 하지 마". 기본 맨손, `--style=N` 으로 고름, 전부는 `--autotest-all`) 돌려 오류가 없는지 확인하고, 필요하면 스크린샷(`%APPDATA%\LOVE\quarterview\auto_*.png`)을 본다. 그다음 `build.ps1` 로 exe.
+- 바꾼 뒤엔 `lovec.exe . --autotest` 로 자동 테스트를 (**지금 작업 중인 스타일만** 돌린다 — 유저 요청: "테스트할 때 다른 무기는 하지 마". 기본 검사(2026-11-23 부터 게임 기본도 검사), `--style=N` 으로 고름, 전부는 `--autotest-all`) 돌려 오류가 없는지 확인하고, 필요하면 스크린샷(`%APPDATA%\LOVE\quarterview\auto_*.png`)을 본다. 그다음 `build.ps1` 로 exe.
 - 배경 질감: `bg/floor|wall_top|wall_front.(png|jpg)` 를 `loadBgTextures` 가 읽고 `bgDraw` 로 반복해서 그린다 (`BG_M` = 그림 한 장이 덮는 미터). `drawGround`·`drawCell` 은 그림이 있으면 단색 대신 쓴다. build.ps1 이 bg 그림도 묶는다. 파일 규칙·프롬프트는 `bg/힉스필드_프롬프트.md`.
 - **힉스필드 (MCP, `.mcp.json`)**: 유저 계정 Starter (동시 4장까지). 그림은 **프로젝트 「쿼터뷰액션」** 에 모은다 — 생성할 때 `folder_id = c2d4228c-0b70-4c07-b987-96c3d1b9f7ed` 를 넣어야 힉스필드 사이트에서 보인다 (안 넣으면 사이트 기록에 안 뜸). 결제·로그인은 유저가 직접. 크레딧 쓰기 전 유저 확인.
   - 도트 질감: gpt_image_2_6 1024 그림은 도트 한 칸 = 8px → 칸 가운데 색으로 128×128 로 줄인다 (`bg/힉스필드_프롬프트.md`).

@@ -260,7 +260,7 @@ local shake, freeze, slowT = 0, 0, 0
 local wave, waveQueue, spawnT, breakT, kills
 local banner = { text = "", sub = "", t = 0 }
 local gameTime, realTime = 0, 0
-local styleIdx = 1
+local styleIdx = 2                     -- 기본 캐릭터 = 검사 (2026-11-23 유저 "실행하면 검사가 기본으로", 예전 1 = 맨손)
 local shadowCanvas
 local beamSrc
 local mouseMovedT = 0
@@ -3203,7 +3203,7 @@ local function pressBtn(b)
 end
 
 function love.load(args)
-  -- --autotest      : 지금 작업 중인 스타일 하나만 40초 (기본 맨손, --style=2 면 검사)
+  -- --autotest      : 지금 작업 중인 스타일 하나만 40초 (기본 검사, --style=N 으로 고름)
   -- --autotest-all  : 7개 스타일 모두 25초씩
   for _, a in ipairs(args or {}) do
     local n = a:match("^%-%-style=(%d+)$")
@@ -3225,7 +3225,9 @@ function love.load(args)
   beamSrc = sfx.beam
   shadowCanvas = lg.newCanvas(W, H)
   newGame()
-  if AUTO then state = "play"; inGame = true end
+  -- 실행하면 스타일 고르기 화면 없이 바로 검사로 싸움 시작 (Tab·숫자키로 다른 캐릭터)
+  state, inGame = "play", true
+  PAD.sel = styleIdx
 end
 
 function love.resize() updateView(); makeFonts() end
