@@ -530,7 +530,8 @@ local launchEnemy
 local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 약 4m 날아간다)
 local SPIN_R = 2.1                      -- 검사 3타 회전베기 반경 (m)
 local BLADE_BLOCK_CHIP = .3             -- 칼로 막기: 막아도 받는 피해 비율 (30%)
-BLADE = { half = 1.5, wind = .3, sweep = .22 }  -- (지역 변수 200개 한도 때문에 전역 표)
+BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false }  -- (지역 변수 200개 한도 때문에 전역 표)
+-- stop: 검사 공격 히트스톱 켜기 (2026-11-23 유저 "일단 빼 보자" → false. 켜면 휘두르기·회전·내려찍기 첫 타에서 한 번 멈춤)
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3 }
@@ -739,7 +740,7 @@ STYLES = {
         if k >= 1 then
           p.leap, p.z = nil, 0
           p.x, p.y = L.x1, L.y1
-          blast(p.x, p.y, LEAP.r, LEAP.dmg, LEAP.kb, LEAP.stop)
+          blast(p.x, p.y, LEAP.r, LEAP.dmg, LEAP.kb, BLADE.stop and LEAP.stop or 0)
           fx[#fx + 1] = { kind = "ring", x = p.x, y = p.y, r = LEAP.r + .3, t = 0, dur = .35, col = { .7, .9, 1 } }
           burst(p.x, p.y, .1, 16, { .6, .5, .35 }, 4, 5, .45)
           addShake(.5)
@@ -843,8 +844,9 @@ STYLES = {
               s.nHit = (s.nHit or 0) + 1
               local nx, ny = norm(dx, dy)
               local first = s.nHit == 1
-              if crit then hitEnemy(e, dmg, nx, ny, kb, first and 11 or 0, true)
-              else hitEnemy(e, dmg, nx, ny, kb, first and 7 or 0) end
+              local st = BLADE.stop and first
+              if crit then hitEnemy(e, dmg, nx, ny, kb, st and 11 or 0, true)
+              else hitEnemy(e, dmg, nx, ny, kb, st and 7 or 0) end
               if crit and first then addShake(.3) end
             end
           end
