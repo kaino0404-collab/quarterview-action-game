@@ -47,4 +47,7 @@
 - 적 날아가기: `launchEnemy` → `updateFlying` → `bowl`(다른 적과 충돌 연쇄), 벽에 박히면 벽꽝.
 - 바꾼 뒤엔 `lovec.exe . --autotest` 로 자동 테스트를 (**지금 작업 중인 스타일만** 돌린다 — 유저 요청: "테스트할 때 다른 무기는 하지 마". 기본 맨손, `--style=N` 으로 고름, 전부는 `--autotest-all`) 돌려 오류가 없는지 확인하고, 필요하면 스크린샷(`%APPDATA%\LOVE\quarterview\auto_*.png`)을 본다. 그다음 `build.ps1` 로 exe.
 - 배경 질감: `bg/floor|wall_top|wall_front.(png|jpg)` 를 `loadBgTextures` 가 읽고 `bgDraw` 로 반복해서 그린다 (`BG_M` = 그림 한 장이 덮는 미터). `drawGround`·`drawCell` 은 그림이 있으면 단색 대신 쓴다. build.ps1 이 bg 그림도 묶는다. 파일 규칙·프롬프트는 `bg/힉스필드_프롬프트.md`.
+- **힉스필드 (MCP, `.mcp.json`)**: 유저 계정 Starter (동시 4장까지). 그림은 **프로젝트 「쿼터뷰액션」** 에 모은다 — 생성할 때 `folder_id = c2d4228c-0b70-4c07-b987-96c3d1b9f7ed` 를 넣어야 힉스필드 사이트에서 보인다 (안 넣으면 사이트 기록에 안 뜸). 결제·로그인은 유저가 직접. 크레딧 쓰기 전 유저 확인.
+  - 도트 질감: gpt_image_2_6 1024 그림은 도트 한 칸 = 8px → 칸 가운데 색으로 128×128 로 줄인다 (`bg/힉스필드_프롬프트.md`).
+  - 캐릭터 컨셉: `컨셉/` (주인공 = 2번 기사 아기 공룡, 같은 모습을 유지하려면 job `59b3e1bf-a494-4ec7-b0ec-00b59d7e556e` 를 `image_references` 로 넣는다).
 - PowerShell 5.1 은 BOM 없는 UTF-8 .ps1 의 한글을 깨뜨린다 → .ps1 은 BOM 있는 UTF-8 로 저장.
