@@ -420,7 +420,7 @@ local function hitEnemy(e, dmg, dx, dy, kb, stop, crit)
   if e.dead then return end
   dmg = dmg * (.9 + rnd() * .2)
   e.hp = e.hp - dmg
-  e.flash, e.hpShow = .1, 2.5
+  e.flash, e.hpShow = .24, 2.5          -- 번쩍임 .1 → .24초 (스프라이트 적은 하얗게 3번 깜빡)
   e.hitT = HIT_FLINCH                  -- 맞을 때마다 상체가 움찔 (다시 맞으면 처음부터 다시)
   local T = e.T
   e.kx, e.ky = e.kx + dx * kb / T.mass, e.ky + dy * kb / T.mass
@@ -530,6 +530,9 @@ local launchEnemy
 local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 약 4m 날아간다)
 local SPIN_R = 2.1                      -- 검사 3타 회전베기 반경 (m)
 local BLADE_BLOCK_CHIP = .3             -- 칼로 막기: 막아도 받는 피해 비율 (30%)
+BLADE = { half = 1.5, wind = .3, sweep = .22 }  -- (지역 변수 200개 한도 때문에 전역 표)
+-- 가로베기 각도 반폭 1.05 → 1.5 (약 86도, 그림에서 칼이 오른쪽 옆 → 왼쪽 옆으로 가는 만큼),
+-- 검기가 휘두르기 칸이 나오는 순간(공격 시간 30%)부터 22% 동안 쓸고 지나감
 local function inPunchReach(p, e, dir, range, half)
   if e.dead or e.fly then return false end
   local dx, dy = e.x - p.x, e.y - p.y
@@ -729,28 +732,14 @@ STYLES = {
           -- 회전베기: 제자리에서 한 바퀴 돌며 주위를 전부 벤다
           local q = min(1, s.t / s.dur)
           p.face = s.dir + (1 - (1 - q) ^ 2) * pi * 2
-          if not s.hit and q >= .25 then
-            s.hit = true
-            for _, e in ipairs(enemies) do
-              if not e.dead and not e.fly then
-                local dx, dy = e.x - p.x, e.y - p.y
-                if len(dx, dy) < SPIN_R + e.r then
-                  local nx, ny = norm(dx, dy)
-                  hitEnemy(e, 26, nx, ny, 11, 11, true)
-                end
-              end
-            end
-            fx[#fx + 1] = { kind = "ring", x = p.x, y = p.y, r = SPIN_R + .2, t = 0, dur = .3, col = { .9, .95, 1 } }
-            addShake(.3)
-          end
+          -- 칼(검기)이 돌아가며 지나가는 순간에 그 자리의 적을 친다 (예전: 25% 시점에 반경 안 전부 한꺼번에)
+          p.style.sweepHit(p, s, SPIN_R, 26, 11, true)
           if s.t >= s.dur then p.face = s.dir; p.sw = nil end
         else
           s.dir = turn(s.dir, p.aim, dt * 5)            -- 공격하면서 방향 조절
           p.face = s.dir
-          if not s.hit and s.t >= s.dur * .3 then
-            s.hit = true
-            meleeArc(p.x, p.y, s.dir, s.range, s.half, s.dmg, s.kb, 7)
-          end
+          -- 검기가 쓸고 지나가며 닿는 순간에 친다 (예전: 30% 시점에 부채꼴 안 전부 한꺼번에)
+          p.style.sweepHit(p, s, s.range, s.dmg, s.kb, false)
           if s.t >= s.dur then p.sw = nil end
         end
       end
@@ -760,7 +749,7 @@ STYLES = {
         local spin = p.combo == 3
         local dir = autoTarget(p, p.aim, 3.2, .6)       -- 전방 자동 조준
         p.sw = { t = 0, dur = spin and .36 or .22, dir = dir, side = (p.combo == 2) and -1 or 1, spin = spin,
-          range = 1.75, half = 1.05, dmg = 14, kb = 6 }
+          range = 1.75, half = BLADE.half, dmg = 14, kb = 6, hitSet = {} }
         p.atkCd = spin and .55 or .27
         p.face = dir
         if not spin then
@@ -770,6 +759,54 @@ STYLES = {
       end
     end,
     press = function() end,
+    -- 검기 머리(칼)가 간 각도. 그림(SPR.slash)과 판정(sweepHit)이 같은 값을 쓴다
+    --   가로베기: 공격 시간의 BLADE.wind(타격 칸으로 바뀌는 순간)부터 BLADE.sweep 동안 a0 → a1 (빠르게 시작해 느려짐)
+    --   회전베기: 처음부터 끝까지 한 바퀴, 칼은 몸 방향보다 90도 뒤(그림의 휘두르기 칸 칼 위치)
+    sweep = function(p, s)
+      if s.spin then
+        local q = min(1, s.t / s.dur)
+        local a0 = s.dir - pi / 2
+        return a0, a0 + (1 - (1 - q) ^ 2) * pi * 2, 1
+      end
+      local g = max(0, min(1, (s.t / s.dur - BLADE.wind) / BLADE.sweep))
+      local u = 1 - (1 - g) ^ 2
+      local side = s.side or 1
+      local a0, a1 = s.dir + s.half * side, s.dir - s.half * side
+      return a0, a0 + (a1 - a0) * u, g > 0 and u or -1
+    end,
+    -- 검기가 지금까지 쓸고 지나간 각도 안(반경 R + 적 몸)에 들어온 적을 그 순간 한 번씩 친다
+    -- 첫 타만 히트스톱을 크게, 같은 휘두르기의 다음 적들은 짧게
+    sweepHit = function(p, s, R, dmg, kb, crit)
+      local a0, head, u = p.style.sweep(p, s)
+      if u < 0 then return end
+      s.hitSet = s.hitSet or {}
+      local span = head - a0
+      for _, e in ipairs(enemies) do
+        if not e.dead and not (s.spin and e.fly) and not s.hitSet[e] then   -- (예전처럼 가로베기는 날아가는 적도 침)
+          local dx, dy = e.x - p.x, e.y - p.y
+          local d = len(dx, dy)
+          if d < R + e.r then
+            local ea = atan2(dy, dx)
+            local hit
+            if d < .5 then hit = true
+            elseif s.spin then hit = ((ea - a0) % (pi * 2)) <= span
+            else
+              local r = angDiff(ea, a0)              -- a0 에서 쓸어 가는 쪽으로 얼마나 갔나
+              hit = (span < 0 and r <= .05 and r >= span) or (span >= 0 and r >= -.05 and r <= span)
+            end
+            if hit then
+              s.hitSet[e] = true
+              s.nHit = (s.nHit or 0) + 1
+              local nx, ny = norm(dx, dy)
+              local first = s.nHit == 1
+              if crit then hitEnemy(e, dmg, nx, ny, kb, first and 11 or 4, true)
+              else hitEnemy(e, dmg, nx, ny, kb, first and 7 or 3) end
+              if crit and first then addShake(.3) end
+            end
+          end
+        end
+      end
+    end,
     speedMul = function(p) return p.blocking and .5 or (p.sw and (p.sw.spin and .25 or .4) or 1) end,
     rName = "칼로 막기",
     pose = function(p, o)
@@ -2162,7 +2199,8 @@ local SPR = {
   -- 원본은 컨셉/검사_공격/. W 는 E 를, N 휘두르기는 N 준비를 좌우로 뒤집은 것.
   atk = nil, aq = nil, aw = 200, ah = 130, afx = 100, afy = 126,
   arow = { E = 2, S = 1, W = 4, N = 3 }, aorder = { "E", "S", "W", "N" },  -- 각도 0 부터 90도씩
-  wind = .3,                                -- 공격 시간 중 준비 칸을 보여 주는 비율 (= 타격 순간)
+  wind = .3,                                -- 공격 시간 중 준비 칸을 보여 주는 비율 (= 검기 시작, BLADE.wind 와 같게)
+  swordZ = 1.0,                             -- 그림 속 칼 높이 (m): 검기를 이 높이에 그린다 (예전 .45 = 허리 아래)
 }
 function SPR.load()
   local ok, img = pcall(lg.newImage, "sprite/blade_walk.png")
@@ -2193,36 +2231,47 @@ end
 -- 검기: 실제 판정(meleeArc 의 range·half)과 같은 크기의 초승달이 오른손 쪽에서 반대쪽으로 쓸고 지나간다
 function SPR.slash(p, al)
   local s = p.sw
+  local a0, head, u = p.style.sweep(p, s)
+  if u < 0 then return end
   local t = s.t / s.dur
-  if t < SPR.wind - .08 then return end
-  local grow = min(1, (t - (SPR.wind - .08)) / .22)
-  local fade = t < .55 and 1 or max(0, 1 - (t - .55) / .45)
-  local R = s.range + .3                     -- 적 몸 반지름까지 닿는 곳
-  local side = s.side or 1
-  local a0 = s.dir + s.half * side           -- 캐릭터 오른쪽 (y 가 아래라 +90도 쪽)
-  local a1 = s.dir - s.half * side
-  local head = a0 + (a1 - a0) * (1 - (1 - grow) ^ 2)
-  local N, z = 20, .45
-  local outer = {}
-  lg.setBlendMode("add")
+  -- 사라지기: 가로베기는 다 쓸고 나서(공격 시간 55%부터), 회전베기는 끝날 무렵
+  local fade
+  if s.spin then fade = t < .7 and 1 or max(0, 1 - (t - .7) / .3)
+  else fade = t < .55 and 1 or max(0, 1 - (t - .55) / .45) end
+  -- 반지름 = 판정 반지름 + .3 (적 몸이 닿는 곳), 높이 = 그림 속 칼 높이 (손 = 발에서 약 1m 위)
+  local R = (s.spin and SPIN_R or s.range) + .3
+  local z = SPR.swordZ
+  local tail = a0
+  if s.spin and head - a0 > 2.4 then tail = head - 2.4 end   -- 회전베기는 칼 뒤로 약 140도만 꼬리
+  local N = 22
+  local pts = {}
   for i = 0, N do
-    local u = i / N
-    local b = a0 + (head - a0) * u
-    local w = R * .55 * u ^ .8               -- 꼬리는 가늘고 칼끝 쪽(머리)은 두껍다
+    local v = i / N
+    local b = tail + (head - tail) * v
+    local w = R * .55 * v ^ .8               -- 꼬리는 가늘고 칼(머리) 쪽은 두껍다 → 안쪽 끝 = 칼끝 궤적
     local ox, oy = proj(p.x + cos(b) * R, p.y + sin(b) * R, z)
     local ix, iy = proj(p.x + cos(b) * (R - w), p.y + sin(b) * (R - w), z)
-    outer[#outer + 1] = { ox, oy, ix, iy, u }
+    pts[#pts + 1] = { ox, oy, ix, iy, v }
   end
+  lg.setBlendMode("add")
   for i = 1, N do
-    local q0, q1 = outer[i], outer[i + 1]
+    local q0, q1 = pts[i], pts[i + 1]
     lg.setColor(.55, .8, 1, al * fade * (.12 + .5 * q1[5]))
     lg.polygon("fill", q0[1], q0[2], q1[1], q1[2], q1[3], q1[4], q0[3], q0[4])
   end
   local line = {}
-  for i = 1, N + 1 do line[#line + 1] = outer[i][1]; line[#line + 1] = outer[i][2] end
+  for i = 1, N + 1 do line[#line + 1] = pts[i][1]; line[#line + 1] = pts[i][2] end
   lg.setColor(.9, .97, 1, al * fade * .9)
   lg.setLineWidth(2.5)
   lg.line(line)
+  -- 머리(지금 칼이 있는 곳): 손에서 바깥 끝까지 밝은 한 줄
+  if u < 1 or s.spin then
+    local hx, hy = proj(p.x + cos(head) * .3, p.y + sin(head) * .3, z)
+    local tx, ty = proj(p.x + cos(head) * R, p.y + sin(head) * R, z)
+    lg.setColor(1, 1, 1, al * fade)
+    lg.setLineWidth(3)
+    lg.line(hx, hy, tx, ty)
+  end
   lg.setBlendMode("alpha")
   lg.setColor(1, 1, 1, 1)
 end
@@ -2251,7 +2300,12 @@ end
 --   원본은 컨셉/메이플풍/<종류>_SD.png (나노 바나나 8방향 시트). 걷기·공격 그림은 따로 없고
 --   한 장을 통통 튀기고, 눌렀다 늘이고, 기울여서 움직인다.
 SPR.e = { w = 160, h = 120, fx = 80, fy = 116, px = .5, img = {}, q = {} }
+-- 흰 실루엣 셰이더 (맞은 적 번쩍임): 그림의 투명도만 쓰고 색은 하양
 function SPR.loadEnemies()
+  local okS, sh = pcall(lg.newShader, [[
+    vec4 effect(vec4 c, Image t, vec2 uv, vec2 sc) { return vec4(1.0, 1.0, 1.0, Texel(t, uv).a * c.a); }
+  ]])
+  if okS then SPR.e.white = sh end
   for _, k in ipairs({ "sword", "gun", "brute" }) do
     local path = "sprite/enemy_" .. k .. ".png"
     local ok, img = pcall(lg.newImage, path)
@@ -2303,7 +2357,7 @@ local function drawPlayer(alphaMul)
   if SPR.img and p.style.id == "blade" then SPR.draw(p, al)
   else Rig.withAlpha(al, Rig.human, o) end
   lg.pop()
-  if SPR.img and p.style.id == "blade" and p.sw and not p.sw.spin then SPR.slash(p, alphaMul or 1) end
+  if SPR.img and p.style.id == "blade" and p.sw and not p.blocking then SPR.slash(p, alphaMul or 1) end
 end
 
 -- 스프라이트 적: 상태마다 눌림·늘어남·기울기로 동작을 보여 준다
@@ -2352,12 +2406,18 @@ function SPR.drawEnemy(e)
     syk, sxk = syk - .12 * amt, sxk + .08 * amt
   end
   local sx, sy = proj(e.x, e.y, 0)
-  local fl = e.flash > 0
-  SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, fl and .5 or 1, fl and .5 or 1, 1)
-  if glow > 0 or fl then
+  -- 맞으면 하얗게 번쩍번쩍: e.flash(맞은 뒤 .24초) 동안 .04초마다 흰 실루엣 켬/끔 (히트스톱 중엔 하얗게 멈춰 있음)
+  local fl = e.flash > 0 and floor(e.flash / .04) % 2 == 0
+  SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, 1, 1, 1)
+  if glow > 0 then
     lg.setBlendMode("add")
-    SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, fl and .8 or .15, fl and .8 or .1, fl and .45 or glow)
+    SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, .15, .1, glow)
     lg.setBlendMode("alpha")
+  end
+  if fl and SPR.e.white then
+    lg.setShader(SPR.e.white)
+    SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, 1, 1, .95)
+    lg.setShader()
   end
   -- 칼잡이 휘두르기: 앞쪽 부채꼴로 흰 칼바람
   if st == "swing" and k == "sword" then
@@ -2388,6 +2448,11 @@ function SPR.drawCorpse(c)
   local f = c.t < .08 and 1 or .72
   SPR.enemyQuad(c.kind, c.face, sx, sy, c.T.size, 1, 1 - .12 * c.fall, side * c.fall * 1.45 + c.spin * c.fall * .3,
     f, f * .85, f * .85, al)
+  if c.t < .08 and SPR.e.white then   -- 죽는 순간 하얗게 번쩍
+    lg.setShader(SPR.e.white)
+    SPR.enemyQuad(c.kind, c.face, sx, sy, c.T.size, 1, 1 - .12 * c.fall, side * c.fall * 1.45 + c.spin * c.fall * .3, 1, 1, 1, al)
+    lg.setShader()
+  end
   lg.setColor(1, 1, 1, 1)
 end
 
