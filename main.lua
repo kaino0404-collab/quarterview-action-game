@@ -285,7 +285,8 @@ local TYPES = {
     range = 1.55, windup = .5, cd = 1.3, dmg = 10, mass = 1, stagger = .3 },
   gun = { name = "총잡이", hp = 28, speed = 2.0, r = .35, size = .95, col = { .72, .26, .2 }, weapon = "rifle",
     range = 9, windup = .8, cd = 2.3, dmg = 9, mass = .9, stagger = .35 },
-  brute = { name = "돌격병", hp = 140, speed = 1.65, r = .5, size = 1.35, col = { .5, .13, .12 }, weapon = "club",
+  -- 돌격병(곰) 두 배 크게 (유저 2026-11-23): 그림 크기 1.35 → 2.7, 몸 반지름 .5 → .9, 이동 1.65 → 1.2
+  brute = { name = "돌격병", hp = 140, speed = 1.2, r = .9, size = 2.7, col = { .5, .13, .12 }, weapon = "club",
     range = 1.9, windup = 1.3, cd = 2.6, dmg = 22, mass = 3, stagger = 0 },   -- 돌진 준비 .85 → 1.3초 (유저: 돌진 시작 시간을 늘려, 덩치에 맞게)
 }
 
@@ -2377,7 +2378,7 @@ end
 -- 적 (메이플풍 SD 만화, sprite/enemy_<kind>.png): 칸 160x120 x 8칸 (S, SE, E, NE, N, NW, W, SW), 발 = (80, 116)
 --   원본은 컨셉/메이플풍/<종류>_SD.png (나노 바나나 8방향 시트). 걷기·공격 그림은 따로 없고
 --   한 장을 통통 튀기고, 눌렀다 늘이고, 기울여서 움직인다.
-SPR.e = { w = 160, h = 120, fx = 80, fy = 116, px = .5, img = {}, q = {} }
+SPR.e = { w = 160, h = 120, fx = 80, fy = 116, px = .5, img = {}, q = {}, pose = {} }
 -- 흰 실루엣 셰이더 (맞은 적 번쩍임): 그림의 투명도만 쓰고 색은 하양
 function SPR.loadEnemies()
   local okS, sh = pcall(lg.newShader, [[
@@ -2396,14 +2397,31 @@ function SPR.loadEnemies()
       print("적 스프라이트 읽음: " .. path)
     end
   end
+  -- 곰(돌격병) 동작 그림: sprite/enemy_brute_<동작>.png, 칸 200x170 x 8 (같은 방향 순서), 발 = (100, 166), 평소 그림과 같은 배율
+  --   raise = 몽둥이 머리 위로 (내려찍기 준비), slam = 내려찍은 자세, crouch = 돌진 준비, charge = 돌진 중
+  --   원본 컨셉/메이플풍/돌격병_들기·내려찍기·돌진준비·돌진.png (나노 바나나, 잘 안 나온 방향은 반대쪽 칸을 좌우로 뒤집어 채움)
+  for _, n in ipairs({ "raise", "slam", "crouch", "charge" }) do
+    local path = "sprite/enemy_brute_" .. n .. ".png"
+    local ok, img = pcall(lg.newImage, path)
+    if ok then
+      img:setFilter("linear", "linear")
+      local iw, ih = img:getDimensions()
+      local q = {}
+      for c = 1, 8 do q[c] = lg.newQuad((c - 1) * 200, 0, 200, 170, iw, ih) end
+      SPR.e.pose[n] = { img = img, q = q }
+      print("곰 동작 그림 읽음: " .. path)
+    end
+  end
 end
--- kind 의 a 방향 그림을 화면 (sx, sy) 발 위치에. sxk, syk = 가로·세로 늘이기, rot = 발 기준 기울기
-function SPR.enemyQuad(kind, a, sx, sy, size, sxk, syk, rot, r, g, b, al)
+-- kind 의 a 방향 그림을 화면 (sx, sy) 발 위치에. sxk, syk = 가로·세로 늘이기, rot = 발 기준 기울기, pose = 곰 동작 그림 이름 (없으면 평소 그림)
+function SPR.enemyQuad(kind, a, sx, sy, size, sxk, syk, rot, r, g, b, al, pose)
   local E = SPR.e
   local col = SPR.row[SPR.order[floor(a / (pi / 4) + .5) % 8 + 1]]
   local s = E.px * size
   lg.setColor(r, g, b, al)
-  lg.draw(E.img[kind], E.q[kind][col], sx, sy, rot, s * sxk, s * syk, E.fx, E.fy)
+  local P = pose and E.pose[pose]
+  if P then lg.draw(P.img, P.q[col], sx, sy, rot, s * sxk, s * syk, 100, 166)
+  else lg.draw(E.img[kind], E.q[kind][col], sx, sy, rot, s * sxk, s * syk, E.fx, E.fy) end
 end
 
 local heroO = {}
@@ -2464,7 +2482,34 @@ function SPR.drawEnemy(e)
     syk, sxk = 1 + .025 * b, 1 - .015 * b
   end
   local glow = 0
-  if st == "windup" or st == "slamWind" then
+  -- 곰(돌격병)은 동작 그림이 있으면 그 그림으로: 몽둥이 들기 → 내려찍기, 돌진 준비 → 돌진
+  local pose
+  if k == "brute" then
+    if st == "slamWind" then pose = "raise"
+    elseif st == "slam" then pose = "slam"
+    elseif st == "windup" then pose = "crouch"
+    elseif st == "dash" then pose = "charge" end
+    if pose and not SPR.e.pose[pose] then pose = nil end
+  end
+  if pose == "raise" then
+    -- 몽둥이를 든 채 점점 더 치켜든다 (준비 시간 동안 위로 늘어남) + 빨갛게 번쩍
+    local q = 1 - max(0, e.t) / BRUTE_SLAM_T
+    sxk, syk, rot = 1 - .04 * q, 1 + .06 * q, -dx * .06 * q
+    glow = .35 + .25 * sin(tm * 30)
+  elseif pose == "slam" then
+    -- 쾅 찍은 순간 납작 눌렸다가 돌아온다
+    local q = max(0, e.t) / .5
+    sxk, syk, rot = 1 + .1 * q, 1 - .12 * q, dx * .05
+  elseif pose == "crouch" then
+    -- 돌진 준비: 웅크리고 앞으로 숙인 채 발을 구르며 부르르 떤다 + 빨갛게 번쩍
+    sxk, syk, rot = 1.06, .9, dx * .12 + sin(tm * 40) * .03
+    glow = .35 + .25 * sin(tm * 30)
+  elseif pose == "charge" then
+    -- 돌진: 앞으로 크게 숙이고 쿵쿵 뛴다
+    local h = abs(sin(tm * 14))
+    lift = h * 4 * T.size
+    sxk, syk, rot = 1.04, .96 + .04 * h, dx * .22
+  elseif st == "windup" or st == "slamWind" then
     -- 준비: 몸을 움츠리고 뒤로 젖힌다 + 빨갛게 번쩍
     sxk, syk, rot = 1.1, .88, -dx * .2
     glow = .35 + .25 * sin(tm * 30)
@@ -2486,15 +2531,15 @@ function SPR.drawEnemy(e)
   local sx, sy = proj(e.x, e.y, 0)
   -- 맞으면 하얗게 번쩍번쩍: e.flash(맞은 뒤 .24초) 동안 .04초마다 흰 실루엣 켬/끔 (히트스톱 중엔 하얗게 멈춰 있음)
   local fl = e.flash > 0 and floor(e.flash / .04) % 2 == 0
-  SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, 1, 1, 1)
+  SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, 1, 1, 1, pose)
   if glow > 0 then
     lg.setBlendMode("add")
-    SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, .15, .1, glow)
+    SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, .15, .1, glow, pose)
     lg.setBlendMode("alpha")
   end
   if fl and SPR.e.white then
     lg.setShader(SPR.e.white)
-    SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, 1, 1, .95)
+    SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, 1, 1, .95, pose)
     lg.setShader()
   end
   -- 칼잡이 휘두르기: 앞쪽 부채꼴로 흰 칼바람
@@ -2796,7 +2841,7 @@ local function drawBars()
   for _, e in ipairs(enemies) do
     if e.hpShow > 0 or e.kind == "brute" then
       local gx, gy = worldToGame(e.x, e.y, 2.55 * e.T.size)
-      local w = e.kind == "brute" and 44 or 30
+      local w = e.kind == "brute" and 60 or 30   -- 곰 체력바 44 → 60 (몸이 두 배)
       lg.setColor(0, 0, 0, .6); lg.rectangle("fill", gx - w / 2 - 1, gy - 1, w + 2, 5)
       lg.setColor(.95, .25, .2); lg.rectangle("fill", gx - w / 2, gy, w * max(0, e.hp / e.maxhp), 3)
     end
@@ -3033,6 +3078,15 @@ local function autoStep(dt)
     if player.leap and player.leap.t > player.leap.dur * .85 and not A.leapShot then A.leapShot = true; lg.captureScreenshot("auto_blade_leap.png") end
     if A.wasLeap and not player.leap then A.leaps = (A.leaps or 0) + 1; print(("[자동테스트] 점프 내려찍기 착지 %d번째, 위치 %.1f, %.1f"):format(A.leaps, player.x, player.y)) end
     A.wasLeap = player.leap ~= nil
+    -- 곰 동작 그림 확인용 스크린샷 (몽둥이 들기 중간, 돌진 준비 중간, 돌진 중)
+    for _, e in ipairs(enemies) do
+      if e.kind == "brute" and not e.dead then
+        if e.state == "slamWind" and e.t < BRUTE_SLAM_T * .5 and not A.bRaise then A.bRaise = true; lg.captureScreenshot("auto_brute_raise.png") end
+        if e.state == "windup" and e.t < e.T.windup * .5 and not A.bCrouch then A.bCrouch = true; lg.captureScreenshot("auto_brute_crouch.png") end
+        if e.state == "dash" and not A.bCharge then A.bCharge = true; lg.captureScreenshot("auto_brute_charge.png") end
+        if e.state == "slam" and not A.bSlam then A.bSlam = true; lg.captureScreenshot("auto_brute_slam.png") end
+      end
+    end
     if player.sw and player.sw.spin and player.sw.t > .12 and not A.spinShot then A.spinShot = true; lg.captureScreenshot("auto_blade_spin.png") end
     if player.sw and not player.sw.spin and player.sw.t > player.sw.dur * .45 and not A.slashShot then A.slashShot = true; lg.captureScreenshot("auto_blade_slash.png") end
     if player.blocking and player.blockFlash > 0 and not A.blockShot then A.blockShot = true; lg.captureScreenshot("auto_blade_block.png") end
