@@ -1457,7 +1457,7 @@ killEnemy = function(e)
   local kb = e.lastKb or 6
   local sp = (5 + kb * .5) / e.T.mass ^ .4
   corpses[#corpses + 1] = {
-    T = e.T, x = e.x, y = e.y, z = 0, r = e.r * .8,
+    T = e.T, kind = e.kind, x = e.x, y = e.y, z = 0, r = e.r * .8,
     vx = dx * sp, vy = dy * sp, vz = 3.5 + kb * .15,
     face = atan2(-dy, -dx),            -- 맞은 쪽을 보며 뒤로 넘어간다
     t = 0, fall = 0, walk = e.walk, spin = (rnd() - .5) * 2,
@@ -1906,7 +1906,8 @@ end
 --   wall_front 벽 앞면 (정면에서 본 것, 그림 아래쪽이 땅)
 -- 도트 그림: 그림 1픽셀(도트 한 칸) = 화면 BG_DOT 픽셀 (960x540 기준), 흐리지 않게 nearest 로 그린다.
 --   그래서 그림 한 장이 덮는 크기(미터) BG_M 은 그림 크기에서 정해진다: 128px 그림 → 6.4m (캐릭터 키 약 1.8m)
-local BG_DOT = 2
+-- (2026-11-23 메이플풍 만화 질감으로 바꿈: 1024 그림을 256px 로 줄여 넣고, 1픽셀 = 화면 1px, 부드럽게(linear). 256px → 6.4m)
+local BG_DOT = 1
 local BG_NAMES = { "floor", "wall_top", "wall_front" }
 local BG_M = {}
 local bgtex = {}
@@ -1919,7 +1920,7 @@ local function loadBgTextures()
         local ok, img = pcall(lg.newImage, path)
         if ok then
           img:setWrap("repeat", "repeat")
-          img:setFilter("nearest", "nearest")
+          img:setFilter("linear", "linear")
           bgtex[name] = img
           BG_M[name] = img:getWidth() * BG_DOT / S
           print(("배경 질감 읽음: %s (%dpx = %.1fm)"):format(path, img:getWidth(), BG_M[name]))
@@ -2018,7 +2019,8 @@ local function renderShadows(shx, shy)
 end
 
 local function drawGround()
-  lg.setColor(.24, .25, .15)
+  -- 맵 바깥: 질감이 있으면(메이플풍 풀밭) 짙은 숲색, 없으면 예전 어두운 올리브
+  if bgtex.floor then lg.setColor(.13, .27, .14) else lg.setColor(.24, .25, .15) end
   lg.rectangle("fill", (cam.x - 40) * S, (cam.y - 40) * KY * S, 80 * S, 80 * KY * S)
   local x0, y0 = proj(1, 1)
   local x1, y1 = proj(MAPW + 1, MAPH + 1)
@@ -2245,6 +2247,33 @@ function SPR.draw(p, al)
   lg.setColor(1, 1, 1, 1)
 end
 
+-- 적 (메이플풍 SD 만화, sprite/enemy_<kind>.png): 칸 160x120 x 8칸 (S, SE, E, NE, N, NW, W, SW), 발 = (80, 116)
+--   원본은 컨셉/메이플풍/<종류>_SD.png (나노 바나나 8방향 시트). 걷기·공격 그림은 따로 없고
+--   한 장을 통통 튀기고, 눌렀다 늘이고, 기울여서 움직인다.
+SPR.e = { w = 160, h = 120, fx = 80, fy = 116, px = .5, img = {}, q = {} }
+function SPR.loadEnemies()
+  for _, k in ipairs({ "sword", "gun", "brute" }) do
+    local path = "sprite/enemy_" .. k .. ".png"
+    local ok, img = pcall(lg.newImage, path)
+    if ok then
+      img:setFilter("linear", "linear")
+      local iw, ih = img:getDimensions()
+      local q = {}
+      for c = 1, 8 do q[c] = lg.newQuad((c - 1) * SPR.e.w, 0, SPR.e.w, SPR.e.h, iw, ih) end
+      SPR.e.img[k], SPR.e.q[k] = img, q
+      print("적 스프라이트 읽음: " .. path)
+    end
+  end
+end
+-- kind 의 a 방향 그림을 화면 (sx, sy) 발 위치에. sxk, syk = 가로·세로 늘이기, rot = 발 기준 기울기
+function SPR.enemyQuad(kind, a, sx, sy, size, sxk, syk, rot, r, g, b, al)
+  local E = SPR.e
+  local col = SPR.row[SPR.order[floor(a / (pi / 4) + .5) % 8 + 1]]
+  local s = E.px * size
+  lg.setColor(r, g, b, al)
+  lg.draw(E.img[kind], E.q[kind][col], sx, sy, rot, s * sxk, s * syk, E.fx, E.fy)
+end
+
 local heroO = {}
 local function drawPlayer(alphaMul)
   local p = player
@@ -2277,8 +2306,94 @@ local function drawPlayer(alphaMul)
   if SPR.img and p.style.id == "blade" and p.sw and not p.sw.spin then SPR.slash(p, alphaMul or 1) end
 end
 
+-- 스프라이트 적: 상태마다 눌림·늘어남·기울기로 동작을 보여 준다
+function SPR.drawEnemy(e)
+  local T, st, k, tm = e.T, e.state, e.kind, realTime
+  local a = (e.kind == "gun" and st == "windup") and e.aim or e.face
+  if e.fly then
+    -- 날아가는 중: 맞은 쪽을 보며 뒤로 벌러덩 기운 채 흔들린다
+    a = atan2(-e.fly.vy, -e.fly.vx)
+    local sx, sy = proj(e.x, e.y, e.z)
+    local side = cos(a) >= 0 and -1 or 1
+    SPR.enemyQuad(k, a, sx, sy, T.size, 1, 1, side * (1.0 + sin(tm * 18) * .25), 1, .7, .7, 1)
+    return
+  end
+  local dx = cos(a)                         -- 화면에서 앞쪽이 오른쪽(+)/왼쪽(-)
+  local sxk, syk, rot, lift = 1, 1, 0, 0
+  if e.moving then
+    -- 통통 튀며 걷기 (걸음 한 번에 한 번 뜀) + 좌우로 뒤뚱
+    local ph = e.walk * 2.1
+    local h = abs(sin(ph))
+    lift = h * 5 * T.size
+    syk, sxk = 1 + .05 * h, 1 - .03 * h
+    rot = sin(ph) * .07 + dx * .06
+  else
+    local b = sin(tm * 3 + e.x * 1.7)
+    syk, sxk = 1 + .025 * b, 1 - .015 * b
+  end
+  local glow = 0
+  if st == "windup" or st == "slamWind" then
+    -- 준비: 몸을 움츠리고 뒤로 젖힌다 + 빨갛게 번쩍
+    sxk, syk, rot = 1.1, .88, -dx * .2
+    glow = .35 + .25 * sin(tm * 30)
+  elseif st == "dash" then
+    sxk, syk, rot = 1.12, .9, dx * .3
+  elseif st == "swing" or st == "slam" then
+    sxk, syk, rot = .92, 1.12, dx * .25
+  elseif st == "recover" then
+    sxk, syk, rot = 1.05, .94, dx * .12
+  end
+  if e.stun > 0 then rot = rot + sin(tm * 12) * .14 end
+  if (e.hitT or 0) > 0 then
+    -- 맞으면 맞은 방향으로 움찔 (덩치 큰 돌격병은 덜)
+    local kk = 1 - e.hitT / HIT_FLINCH
+    local amt = sin(min(1, kk * 1.6) * pi) * (1 - kk * .4) * ((k == "brute") and .5 or 1)
+    rot = rot + (e.lastDx or -dx) * .35 * amt
+    syk, sxk = syk - .12 * amt, sxk + .08 * amt
+  end
+  local sx, sy = proj(e.x, e.y, 0)
+  local fl = e.flash > 0
+  SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, fl and .5 or 1, fl and .5 or 1, 1)
+  if glow > 0 or fl then
+    lg.setBlendMode("add")
+    SPR.enemyQuad(k, a, sx, sy - lift, T.size, sxk, syk, rot, 1, fl and .8 or .15, fl and .8 or .1, fl and .45 or glow)
+    lg.setBlendMode("alpha")
+  end
+  -- 칼잡이 휘두르기: 앞쪽 부채꼴로 흰 칼바람
+  if st == "swing" and k == "sword" then
+    local t = min(1, 1 - e.t / .16)
+    local R, N = T.range, 14
+    local a0, a1 = a + 1.1, a - 1.1
+    local head = a0 + (a1 - a0) * t
+    lg.setBlendMode("add")
+    for i = 1, N do
+      local b0, b1 = a0 + (head - a0) * (i - 1) / N, a0 + (head - a0) * i / N
+      local w0, w1 = R * .4 * ((i - 1) / N) ^ .8, R * .4 * (i / N) ^ .8
+      local p1x, p1y = proj(e.x + cos(b0) * R, e.y + sin(b0) * R, .45)
+      local p2x, p2y = proj(e.x + cos(b1) * R, e.y + sin(b1) * R, .45)
+      local p3x, p3y = proj(e.x + cos(b1) * (R - w1), e.y + sin(b1) * (R - w1), .45)
+      local p4x, p4y = proj(e.x + cos(b0) * (R - w0), e.y + sin(b0) * (R - w0), .45)
+      lg.setColor(1, .85, .75, .15 + .55 * i / N)
+      lg.polygon("fill", p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y)
+    end
+    lg.setBlendMode("alpha")
+  end
+  lg.setColor(1, 1, 1, 1)
+end
+-- 스프라이트 시체: 맞은 반대쪽으로 벌러덩 넘어가며 어두워지고 사라진다
+function SPR.drawCorpse(c)
+  local al = c.t > 2.4 and max(0, 1 - (c.t - 2.4) / .8) or 1
+  local sx, sy = proj(c.x, c.y, c.z)
+  local side = cos(c.face) >= 0 and -1 or 1
+  local f = c.t < .08 and 1 or .72
+  SPR.enemyQuad(c.kind, c.face, sx, sy, c.T.size, 1, 1 - .12 * c.fall, side * c.fall * 1.45 + c.spin * c.fall * .3,
+    f, f * .85, f * .85, al)
+  lg.setColor(1, 1, 1, 1)
+end
+
 local enemyO = {}
 local function drawEnemy(e)
+  if SPR.e.img[e.kind] then return SPR.drawEnemy(e) end
   local T = e.T
   local o = enemyO
   o.tm, o.fl = realTime, e.flash > 0
@@ -2352,6 +2467,7 @@ end
 
 local corpseO = {}
 local function drawCorpse(c)
+  if c.kind and SPR.e.img[c.kind] then return SPR.drawCorpse(c) end
   local o = corpseO
   local a = c.t > 2.4 and max(0, 1 - (c.t - 2.4) / .8) or 1
   o.tm, o.fl = realTime, c.t < .08
@@ -2723,6 +2839,7 @@ function love.load(args)
   makeSounds()
   loadBgTextures()
   SPR.load()
+  SPR.loadEnemies()
   beamSrc = sfx.beam
   shadowCanvas = lg.newCanvas(W, H)
   newGame()
