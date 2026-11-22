@@ -2093,7 +2093,7 @@ local SPR = {
   px = .52,                                 -- 시트 1px = 화면 px (공룡 키 약 56px, 마네킹 약 52px)
   row = { E = 3, SE = 2, S = 1, SW = 8, W = 7, NW = 6, N = 5, NE = 4 },
   order = { "E", "SE", "S", "SW", "W", "NW", "N", "NE" },  -- 각도 0 부터 45도씩 (y 가 아래)
-  walk = .9,                                -- p.walk 1 당 걷기 프레임 수 (보통 걸음 약 11장/초)
+  walk = 2.7,                               -- p.walk 1 당 걷기 프레임 수 (보통 걸음 약 34장/초, 유저: 아장아장 3배 빠르게)
 }
 function SPR.load()
   local ok, img = pcall(lg.newImage, "sprite/blade_walk.png")
