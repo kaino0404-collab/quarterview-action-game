@@ -819,7 +819,7 @@ STYLES = {
       return a0, a0 + (a1 - a0) * u, g > 0 and u or -1
     end,
     -- 검기가 지금까지 쓸고 지나간 각도 안(반경 R + 적 몸)에 들어온 적을 그 순간 한 번씩 친다
-    -- 첫 타만 히트스톱을 크게, 같은 휘두르기의 다음 적들은 짧게
+    -- 히트스톱은 휘두르기 한 번에 한 번만 (유저: 맞는 적마다 멈추면 두두둑 끊김) → 첫 타에서만 멈추고 다음 적은 0
     sweepHit = function(p, s, R, dmg, kb, crit)
       local a0, head, u = p.style.sweep(p, s)
       if u < 0 then return end
@@ -843,8 +843,8 @@ STYLES = {
               s.nHit = (s.nHit or 0) + 1
               local nx, ny = norm(dx, dy)
               local first = s.nHit == 1
-              if crit then hitEnemy(e, dmg, nx, ny, kb, first and 11 or 4, true)
-              else hitEnemy(e, dmg, nx, ny, kb, first and 7 or 3) end
+              if crit then hitEnemy(e, dmg, nx, ny, kb, first and 11 or 0, true)
+              else hitEnemy(e, dmg, nx, ny, kb, first and 7 or 0) end
               if crit and first then addShake(.3) end
             end
           end
