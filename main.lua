@@ -592,7 +592,8 @@ end
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3,
-  padMin = 1.5, padGrow = 6.5, steer = .85, nudge = 6.5 }
+  padMin = 1.5, padGrow = 6.5, steer = .85, nudge = 6.5, padNudge = 10 }
+-- padNudge: 패드로 공중에서 끝까지 기울였을 때 내려앉을 곳이 움직이는 속도 (m/초, 기울인 만큼 비례). 유저: "패드는 잘못 뛸 수 있으니 점프 후 위치를 잡을 수 있어야"
 -- nudge: 공중에서 이동 방향을 누를 때 내려앉을 곳이 움직이는 속도 (m/초, 마우스·패드 공통, padGrow 는 이제 안 씀)
 -- padGrow: 누르고 있을 때 멀어지는 속도 13 → 6.5 m/s (유저: "거리 조절되는 속도를 반으로")
 -- steer: 패드로 거리를 늘릴 수 있는 시간 (점프 시간의 85% 까지 = 약 .54초 → 끝까지 누르면 약 5m)
@@ -814,8 +815,22 @@ STYLES = {
         --   공중에 있는 동안(LEAP.steer 85% 까지) 이동 방향(WASD·왼스틱·십자키)을 누르면 내려앉을 곳이 그쪽으로 초당 LEAP.nudge m 움직인다.
         --   앞으로 누르면 멀리, 뒤로 누르면 가까이, 옆으로 누르면 옆으로. 뛴 곳에서 최대 LEAP.max m, 높은 벽 너머로는 못 감
         --   (예전 패드는 "누르면 뛴 방향으로 멀어지기"만 됐음)
-        if k < LEAP.steer and (p.mvx ~= 0 or p.mvy ~= 0) then
-          local tx, ty = L.x1 + p.mvx * LEAP.nudge * dt, L.y1 + p.mvy * LEAP.nudge * dt
+        --   패드는 기울인 만큼만 움직인다 (살짝 = 천천히 미세 조정, 끝까지 = 초당 LEAP.padNudge m) — 마우스처럼 정확히 못 찍으니 뛴 뒤에 잡는다
+        local ux, uy, sp = p.mvx, p.mvy, LEAP.nudge
+        if PAD.active and PAD.js and not AUTO then
+          local sx, sy = PAD.stick("left")
+          local j = PAD.js
+          if j:isGamepadDown("dpleft") then sx = sx - 1 end
+          if j:isGamepadDown("dpright") then sx = sx + 1 end
+          if j:isGamepadDown("dpup") then sy = sy - 1 end
+          if j:isGamepadDown("dpdown") then sy = sy + 1 end
+          sy = sy / KY                                  -- 화면에서 민 방향 그대로 바닥 위로
+          local m = len(sx, sy)
+          if m > 1 then sx, sy = sx / m, sy / m end
+          ux, uy, sp = sx, sy, LEAP.padNudge
+        end
+        if k < LEAP.steer and (ux ~= 0 or uy ~= 0) then
+          local tx, ty = L.x1 + ux * sp * dt, L.y1 + uy * sp * dt
           local dx, dy = tx - L.x0, ty - L.y0
           local d = len(dx, dy)
           if d > .05 then
