@@ -535,6 +535,8 @@ BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false }  -- (지역 변수 
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3 }
+-- 검사 회전베기: 한 바퀴 .3초 x 2, 바퀴 사이 텀 .12초 (예전 한 바퀴 .36초), 도는 동안 이동 속도 x.8 (예전 x.25)
+SPIN = { one = .3, gap = .12, move = .8 }
 -- 가로베기 각도 반폭 1.05 → 1.5 (약 86도, 그림에서 칼이 오른쪽 옆 → 왼쪽 옆으로 가는 만큼),
 -- 검기가 휘두르기 칸이 나오는 순간(공격 시간 30%)부터 22% 동안 쓸고 지나감
 local function inPunchReach(p, e, dir, range, half)
@@ -720,7 +722,7 @@ STYLES = {
   -- 2 검사 -----------------------------------------------------------------
   {
     id = "blade", name = "검사", tag = "리얼타임 액션", hp = 120, speed = 5.2,
-    desc = { "좌클릭  3연격 — 공격 시 전진, 3타는 회전베기(주위 전부)", "공격 중 마우스로 방향 조절 · 앞쪽 적 자동 조준", "우클릭  점프 내려찍기 — 클릭한 곳(최대 7m)으로 뛰어올라", "내려앉으며 둘레를 전부 친다 (떠 있는 동안 무적)" },
+    desc = { "좌클릭  3연격 — 공격 시 전진, 3타는 회전베기 두 바퀴(돌며 이동)", "공격 중 마우스로 방향 조절 · 앞쪽 적 자동 조준", "우클릭  점프 내려찍기 — 클릭한 곳(최대 7m)으로 뛰어올라", "내려앉으며 둘레를 전부 친다 (떠 있는 동안 무적)" },
     blockChip = BLADE_BLOCK_CHIP, noPerfect = true,   -- 막아도 체력이 조금 닳는다 (완벽한 막기 없음)
     update = function(p, dt)
       -- (칼로 막기는 지움 — 유저: 우클릭 = 점프 내려찍기)
@@ -752,9 +754,9 @@ STYLES = {
         local s = p.sw
         s.t = s.t + dt
         if s.spin then
-          -- 회전베기: 제자리에서 한 바퀴 돌며 주위를 전부 벤다
-          local q = min(1, s.t / s.dur)
-          p.face = s.dir + (1 - (1 - q) ^ 2) * pi * 2
+          -- 회전베기: 두 바퀴 돌며 주위를 전부 벤다 (바퀴 사이 잠깐 텀, 도는 동안 이동 가능)
+          local _, head = p.style.sweep(p, s)
+          p.face = head + pi / 2                          -- 칼은 몸 방향보다 90도 뒤
           -- 칼(검기)이 돌아가며 지나가는 순간에 그 자리의 적을 친다 (예전: 25% 시점에 반경 안 전부 한꺼번에)
           p.style.sweepHit(p, s, SPIN_R, 26, 11, true)
           if s.t >= s.dur then p.face = s.dir; p.sw = nil end
@@ -771,9 +773,9 @@ STYLES = {
         p.comboT = .55
         local spin = p.combo == 3
         local dir = autoTarget(p, p.aim, 3.2, .6)       -- 전방 자동 조준
-        p.sw = { t = 0, dur = spin and .36 or .22, dir = dir, side = (p.combo == 2) and -1 or 1, spin = spin,
+        p.sw = { t = 0, dur = spin and (SPIN.one * 2 + SPIN.gap) or .22, dir = dir, side = (p.combo == 2) and -1 or 1, spin = spin,
           range = 1.75, half = BLADE.half, dmg = 14, kb = 6, hitSet = {} }
-        p.atkCd = spin and .55 or .27
+        p.atkCd = spin and (SPIN.one * 2 + SPIN.gap + .15) or .27
         p.face = dir
         if not spin then
           p.kx, p.ky = p.kx + cos(dir) * 6, p.ky + sin(dir) * 6   -- 공격 시 전진 (회전베기는 제자리)
@@ -809,9 +811,13 @@ STYLES = {
     --   회전베기: 처음부터 끝까지 한 바퀴, 칼은 몸 방향보다 90도 뒤(그림의 휘두르기 칸 칼 위치)
     sweep = function(p, s)
       if s.spin then
-        local q = min(1, s.t / s.dur)
+        -- 두 바퀴: 한 바퀴(SPIN.one) → 잠깐 멈춤(SPIN.gap) → 한 바퀴. r = 몇 바퀴째, q = 그 바퀴 안에서 간 비율
+        local r, q
+        if s.t < SPIN.one then r, q = 1, s.t / SPIN.one
+        elseif s.t < SPIN.one + SPIN.gap then r, q = 1, 1
+        else r, q = 2, min(1, (s.t - SPIN.one - SPIN.gap) / SPIN.one) end
         local a0 = s.dir - pi / 2
-        return a0, a0 + (1 - (1 - q) ^ 2) * pi * 2, 1
+        return a0, a0 + (1 - (1 - q) ^ 2) * pi * 2, 1, r, q
       end
       local g = max(0, min(1, (s.t / s.dur - BLADE.wind) / BLADE.sweep))
       local u = 1 - (1 - g) ^ 2
@@ -822,8 +828,9 @@ STYLES = {
     -- 검기가 지금까지 쓸고 지나간 각도 안(반경 R + 적 몸)에 들어온 적을 그 순간 한 번씩 친다
     -- 히트스톱은 휘두르기 한 번에 한 번만 (유저: 맞는 적마다 멈추면 두두둑 끊김) → 첫 타에서만 멈추고 다음 적은 0
     sweepHit = function(p, s, R, dmg, kb, crit)
-      local a0, head, u = p.style.sweep(p, s)
+      local a0, head, u, r = p.style.sweep(p, s)
       if u < 0 then return end
+      if s.spin and r ~= s.round then s.round, s.hitSet, s.nHit = r, {}, 0 end   -- 바퀴마다 다시 칠 수 있게
       s.hitSet = s.hitSet or {}
       local span = head - a0
       for _, e in ipairs(enemies) do
@@ -853,7 +860,7 @@ STYLES = {
         end
       end
     end,
-    speedMul = function(p) return p.leap and 0 or (p.sw and (p.sw.spin and .25 or .4) or 1) end,
+    speedMul = function(p) return p.leap and 0 or (p.sw and (p.sw.spin and SPIN.move or .4) or 1) end,
     cdMax = LEAP.cd, rName = "내려찍기",
     pose = function(p, o)
       if p.blocking then o.crouch = 7 end
@@ -2283,12 +2290,12 @@ end
 -- 검기: 실제 판정(meleeArc 의 range·half)과 같은 크기의 초승달이 오른손 쪽에서 반대쪽으로 쓸고 지나간다
 function SPR.slash(p, al)
   local s = p.sw
-  local a0, head, u = p.style.sweep(p, s)
+  local a0, head, u, _, sq = p.style.sweep(p, s)
   if u < 0 then return end
   local t = s.t / s.dur
   -- 사라지기: 가로베기는 다 쓸고 나서(공격 시간 55%부터), 회전베기는 끝날 무렵
   local fade
-  if s.spin then fade = t < .7 and 1 or max(0, 1 - (t - .7) / .3)
+  if s.spin then fade = sq < .7 and 1 or max(0, 1 - (sq - .7) / .3)   -- 바퀴마다 끝날 무렵 사라짐
   else fade = t < .55 and 1 or max(0, 1 - (t - .55) / .45) end
   -- 반지름 = 판정 반지름 + .3 (적 몸이 닿는 곳), 높이 = 그림 속 칼 높이 (손 = 발에서 약 1m 위)
   local R = (s.spin and SPIN_R or s.range) + .3
@@ -3012,6 +3019,8 @@ local function autoStep(dt)
     if player.leap and player.leap.t > player.leap.dur * .85 and not A.leapShot then A.leapShot = true; lg.captureScreenshot("auto_blade_leap.png") end
     if A.wasLeap and not player.leap then A.leaps = (A.leaps or 0) + 1; print(("[자동테스트] 점프 내려찍기 착지 %d번째, 위치 %.1f, %.1f"):format(A.leaps, player.x, player.y)) end
     A.wasLeap = player.leap ~= nil
+    if player.sw and player.sw.spin and player.sw.round == 2 and not A.spin2 then A.spin2 = true; print(("[자동테스트] 회전베기 두 번째 바퀴 시작 (t=%.2f초)"):format(player.sw.t)) end
+    if player.sw and player.sw.spin and player.sw.round == 2 and (player.sw.nHit or 0) > 0 and not A.spin2hit then A.spin2hit = true; print("[자동테스트] 회전베기 두 번째 바퀴에서 맞힘") end
     if player.sw and player.sw.spin and player.sw.t > .12 and not A.spinShot then A.spinShot = true; lg.captureScreenshot("auto_blade_spin.png") end
     if player.sw and not player.sw.spin and player.sw.t > player.sw.dur * .45 and not A.slashShot then A.slashShot = true; lg.captureScreenshot("auto_blade_slash.png") end
     if player.blocking and player.blockFlash > 0 and not A.blockShot then A.blockShot = true; lg.captureScreenshot("auto_blade_block.png") end
