@@ -329,6 +329,20 @@ function PAD.axis(name)
   local v = PAD.js:getGamepadAxis(name)
   return abs(v) > PAD.dead and v or 0
 end
+-- 왼스틱·십자키 방향 (월드 방향으로 바꾼 단위 벡터, 누르고 있나). 화면 세로는 KY 로 눌려 있어서 ÷ KY
+function PAD.dir()
+  local j = PAD.js
+  if not j then return 0, 0, false end
+  local x, y = PAD.axis("leftx"), PAD.axis("lefty")
+  if j:isGamepadDown("dpleft") then x = x - 1 end
+  if j:isGamepadDown("dpright") then x = x + 1 end
+  if j:isGamepadDown("dpup") then y = y - 1 end
+  if j:isGamepadDown("dpdown") then y = y + 1 end
+  y = y / KY
+  local m = math.sqrt(x * x + y * y)
+  if m < .3 then return 0, 0, false end
+  return x / m, y / m, true
+end
 -- 마우스 버튼 b(1 = 공격, 2 = 스킬)에 해당하는 패드 버튼이 눌려 있나
 function PAD.held(b)
   local j = PAD.js
@@ -563,7 +577,22 @@ BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .15, preMo
 -- gapCd: 1·2타 다음 공격까지 .27 → .4 → .33초, spinPre .2 → .3 → .24 → .15초 (유저: "빨라" → "너무 느려진 듯" → "세 번째 텀 공격이 너무 느려"). 회전베기도 돌 때 spinLunge 8 만큼 파고듦
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
-LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3 }
+LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3,
+  padMin = 1.5, padGrow = 13 }
+-- 패드로 할 때 (2026-11-23 유저 "점프하는 동안 방향으로 거리 조절, 짧게 기울이면 가깝게, 길게 기울이면 멀리"):
+--   처음엔 padMin 1.5m 앞으로 뛰고, 올라가는 동안(꼭대기 전) 왼스틱·십자키를 누르고 있는 만큼 초당 padGrow 13m 씩 멀어진다 (최대 7m),
+--   방향도 누른 쪽으로 바뀜. 패드 점프 시간·높이는 최대 거리 기준으로 고정 (.63초, 1.9m)
+-- (x0, y0) 에서 (nx, ny) 방향으로 d 만큼: 높은 벽 앞에서 멈추고, 낮은 벽은 넘고, 내려앉는 곳은 빈 땅만
+function LEAP.land(x0, y0, nx, ny, d)
+  local lx, ly = x0, y0
+  for i = 1, floor(d / .1) do
+    local x, y = x0 + nx * i * .1, y0 + ny * i * .1
+    local h = cellH(x, y)
+    if h > LOW then break end
+    if h == 0 then lx, ly = x, y end
+  end
+  return lx, ly
+end
 -- 돌격병 돌진 (덩치에 맞게 묵직하게, 2026-11-23 유저): 속도 11 → 7 m/s, 시간 .55 → .8초 (거리 약 6m → 5.6m 로 비슷)
 BRUTE_DASH_SPD, BRUTE_DASH_T = 7, .8
 -- 돌격병 내려찍기 준비(몽둥이 들고 빨갛게 깜빡) .75 → 1.2초 (유저: "곰의 내려찍기는 너무 빨라")
@@ -764,6 +793,15 @@ STYLES = {
         local L = p.leap
         L.t = L.t + dt
         local k = min(1, L.t / L.dur)
+        -- 패드: 올라가는 동안 방향을 누르고 있으면 내려앉을 곳이 그쪽으로 점점 멀어진다
+        if L.pad and k < LEAP.top then
+          local nx, ny, held = PAD.dir()
+          if held then
+            L.dist = min(LEAP.max, L.dist + LEAP.padGrow * dt)
+            L.dir = atan2(ny, nx)
+            L.x1, L.y1 = LEAP.land(L.x0, L.y0, nx, ny, L.dist)
+          end
+        end
         local kh = 1 - (1 - min(1, k / .8)) ^ 2          -- 앞으로는 80% 안에 다 간다 (빨리 출발해 느려짐)
         p.x, p.y = lerp(L.x0, L.x1, kh), lerp(L.y0, L.y1, kh)
         if k < LEAP.top then p.z = L.h * sin(k / LEAP.top * pi / 2)
@@ -819,7 +857,17 @@ STYLES = {
     end,
     -- 우클릭: 클릭한 곳(최대 LEAP.max m)까지 점프해서 내려찍기. 높은 벽 앞에서 멈추고, 벽 안이면 그 앞 빈 땅에 내린다
     press = function(p, b)
-      if b == 2 and p.cdR <= 0 and canAct(p) and not p.sw and not p.leap then
+      if b == 2 and p.cdR <= 0 and canAct(p) and not p.sw and not p.leap and PAD.active then
+        -- 패드: 가까이(1.5m) 뛰기 시작해서, 공중에서 누르고 있는 만큼 멀리 (update 의 p.leap 쪽)
+        local nx, ny, held = PAD.dir()
+        local a = held and atan2(ny, nx) or PAD.aim
+        local lx, ly = LEAP.land(p.x, p.y, cos(a), sin(a), LEAP.padMin)
+        p.leap = { t = 0, dur = LEAP.dur + LEAP.max * .03, x0 = p.x, y0 = p.y, x1 = lx, y1 = ly,
+          h = LEAP.h + LEAP.max * .12, dir = a, pad = true, dist = LEAP.padMin }
+        p.cdR = LEAP.cd
+        p.face = a
+        play("dash", .1, .8); play("swing", .15, .7)
+      elseif b == 2 and p.cdR <= 0 and canAct(p) and not p.sw and not p.leap then
         local mx, my = mouseWorld(0)
         local dx, dy = mx - p.x, my - p.y
         local d = len(dx, dy)
@@ -3163,15 +3211,21 @@ local function autoStep(dt)
   if A.styleT >= 24 and A.styleT - dt < 24 then DEV.run("kill"); DEV.run("god"); print("[자동테스트] 개발자: 적 제거(웨이브 멈춤) + 무적 끔") end
   -- 가짜 패드로 패드 코드 한 번씩 지나가 보기 (오른쪽 조준 5m, Y = 스킬, A = 덤블링, X = 공격)
   if A.styleT >= 26 and A.styleT - dt < 26 then
-    local fake = { isGamepad = function() return true end, getGamepadAxis = function(_, n) return n == "triggerright" and 1 or 0 end,
+    local fake = { isGamepad = function() return true end, getGamepadAxis = function(_, n) return (n == "triggerright" or (n == "leftx" and A.padHold)) and 1 or 0 end,
       isGamepadDown = function() return false end }
     PAD.js, PAD.active, PAD.aim, PAD.dist = fake, true, 0, 5
     local mx, my = mouseWorld(0)
     print(("[자동테스트] 패드: 조준점 %.1f, %.1f (캐릭터 %.1f, %.1f), RT 공격 눌림 %s"):format(mx, my, player.x, player.y, tostring(PAD.held(1))))
     player.cdR, player.sw, player.dash, player.vault, player.stagger = 0, nil, nil, nil, 0
     love.gamepadpressed(fake, "y")
-    print(("[자동테스트] 패드: Y(스킬) 누름 → 점프 %s, 내려앉을 곳까지 %.1fm"):format(tostring(player.leap ~= nil),
+    print(("[자동테스트] 패드: Y(스킬) 누름 → 점프 %s, 처음 내려앉을 곳까지 %.1fm"):format(tostring(player.leap ~= nil),
       player.leap and len(player.leap.x1 - player.x, player.leap.y1 - player.y) or 0))
+    A.padHold = true                                    -- 공중에서 오른쪽을 계속 누르고 있기
+  end
+  if A.padHold and player.leap and player.leap.pad then A.padLeap = player.leap end
+  if A.padHold and A.padLeap and not player.leap then
+    print(("[자동테스트] 패드: 공중에서 오른쪽을 누르고 있었더니 %.1fm 날아가 내려앉음 (최대 %d)"):format(len(A.padLeap.x1 - A.padLeap.x0, A.padLeap.y1 - A.padLeap.y0), LEAP.max))
+    A.padHold, A.padLeap = false, nil
   end
   if A.styleT >= 27 and A.styleT - dt < 27 then love.gamepadpressed(PAD.js, "a"); print("[자동테스트] 패드: A(덤블링) 누름 → 회피 " .. tostring(player.dash ~= nil or player.vault ~= nil)) end
   if A.styleT >= 28 and A.styleT - dt < 28 then PAD.js, PAD.active, PAD.rt = nil, false, false; print("[자동테스트] 패드: 뺌") end
