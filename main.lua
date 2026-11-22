@@ -575,7 +575,15 @@ local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 
 local SPIN_R = 2.1                      -- 검사 3타 회전베기 반경 (m)
 local BLADE_BLOCK_CHIP = .3             -- 칼로 막기: 막아도 받는 피해 비율 (30%)
 BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .15, preMove = 1, atkMove = .4,
-  lunge = 10, spinLunge = 8, gapCd = .33 }  -- (지역 변수 200개 한도 때문에 전역 표)
+  lunge = 10, spinLunge = 8, gapCd = .33, fwdCut = .7 }  -- (지역 변수 200개 한도 때문에 전역 표)
+-- 파고들기 힘 배율: 공격 방향으로 걸어가며 베면 걷는 힘 + 파고드는 힘이 겹쳐 너무 빨라진다 (유저: "앞으로 가면서 때리면 너무 가속")
+--   → 누르는 방향이 공격 방향과 같을수록 줄인다: 정면으로 걸으면 x(1 - fwdCut) = x.3, 옆이면 x1, 뒤로 걸으면 x1, 서 있으면 x1
+function BLADE.lungeK(p, dir)
+  local mx, my = p.mvx or 0, p.mvy or 0
+  if mx == 0 and my == 0 then return 1 end
+  local dot = mx * cos(dir) + my * sin(dir)
+  return 1 - BLADE.fwdCut * max(0, dot)
+end
 -- stop: 검사 공격 히트스톱 켜기 (2026-11-23 유저 "일단 빼 보자" → false. 켜면 휘두르기·회전·내려찍기 첫 타에서 한 번 멈춤)
 -- spinPre: 3타 회전베기 전 텀 (잽잽훅 박자, 2026-11-23 유저). 이 동안 준비 자세로 멈췄다가 돈다
 -- preMove: 그 텀 동안 이동 속도 배율 (유저: "텀 때 이동이 안 된다" → x.25 에서 x1, 도는 동안은 x.25 그대로)
@@ -834,7 +842,8 @@ STYLES = {
           -- 회전베기: 제자리에서 한 바퀴 돌며 주위를 전부 벤다
           -- 3타 전 텀(s.t 가 음수인 동안): 준비 자세로 멈췄다가, 0 이 되는 순간 휙 돈다 (잽잽훅)
           if s.t >= 0 and not s.went then s.went = true; play("swing", .25, 1)
-            p.kx, p.ky = p.kx + cos(s.dir) * BLADE.spinLunge, p.ky + sin(s.dir) * BLADE.spinLunge   -- 훅: 돌며 파고듦
+            local L = BLADE.spinLunge * BLADE.lungeK(p, s.dir)   -- 훅: 돌며 파고듦
+            p.kx, p.ky = p.kx + cos(s.dir) * L, p.ky + sin(s.dir) * L
           end
           local q = max(0, min(1, s.t / s.dur))
           p.face = s.dir + (1 - (1 - q) ^ 2) * pi * 2
@@ -859,7 +868,10 @@ STYLES = {
         p.atkCd = spin and (BLADE.spinPre + .55) or BLADE.gapCd
         p.face = dir
         -- 공격할 때마다 앞으로 파고든다 (전진 힘 BLADE.lunge, 회전베기는 텀이 끝나고 돌 때 BLADE.spinLunge)
-        if not spin then p.kx, p.ky = p.kx + cos(dir) * BLADE.lunge, p.ky + sin(dir) * BLADE.lunge end
+        if not spin then
+          local L = BLADE.lunge * BLADE.lungeK(p, dir)
+          p.kx, p.ky = p.kx + cos(dir) * L, p.ky + sin(dir) * L
+        end
         if not spin then play("swing", .25, .8) end   -- 회전베기 소리는 텀이 끝나고 돌 때
       end
     end,
