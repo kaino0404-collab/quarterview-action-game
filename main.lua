@@ -1841,21 +1841,25 @@ end
 --   floor      바닥 (이음매 없이 반복되는 그림, 위에서 내려다본 것)
 --   wall_top   벽 윗면 (위에서 내려다본 것)
 --   wall_front 벽 앞면 (정면에서 본 것, 그림 아래쪽이 땅)
--- BG_M = 그림 한 장이 덮는 크기 (미터). 캐릭터 키가 약 1.8m
-local BG_M = { floor = 4, wall_top = 2, wall_front = 2 }
+-- 도트 그림: 그림 1픽셀(도트 한 칸) = 화면 BG_DOT 픽셀 (960x540 기준), 흐리지 않게 nearest 로 그린다.
+--   그래서 그림 한 장이 덮는 크기(미터) BG_M 은 그림 크기에서 정해진다: 128px 바닥 → 6.4m, 40px 벽 → 2m (캐릭터 키 약 1.8m)
+local BG_DOT = 2
+local BG_NAMES = { "floor", "wall_top", "wall_front" }
+local BG_M = {}
 local bgtex = {}
 local bgQuad = nil
 local function loadBgTextures()
-  for name in pairs(BG_M) do
+  for _, name in ipairs(BG_NAMES) do
     for _, ext in ipairs({ ".png", ".jpg", ".jpeg" }) do
       local path = "bg/" .. name .. ext
       if love.filesystem.getInfo(path) then
-        local ok, img = pcall(lg.newImage, path, { mipmaps = true })
+        local ok, img = pcall(lg.newImage, path)
         if ok then
           img:setWrap("repeat", "repeat")
-          img:setMipmapFilter("linear")
+          img:setFilter("nearest", "nearest")
           bgtex[name] = img
-          print("배경 질감 읽음: " .. path)
+          BG_M[name] = img:getWidth() * BG_DOT / S
+          print(("배경 질감 읽음: %s (%dpx = %.1fm)"):format(path, img:getWidth(), BG_M[name]))
           break
         end
       end
