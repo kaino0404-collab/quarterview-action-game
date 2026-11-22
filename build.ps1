@@ -38,6 +38,14 @@ $spDir = Join-Path $src "sprite"
 if (Test-Path $spDir) {
   Get-ChildItem $spDir -File | Where-Object { $_.Extension -match '^\.png$' } | ForEach-Object { AddFile $_.FullName ("sprite/" + $_.Name) }
 }
+# 이펙트 그림 (fx/slash_trail.png 등) 과 효과음 (sfx/blade_swing1.mp3 등), 있을 때만
+foreach ($pair in @(@("fx", '^\.png$'), @("sfx", '^\.(mp3|ogg|wav)$'))) {
+  $dir = Join-Path $src $pair[0]
+  if (Test-Path $dir) {
+    $pat = $pair[1]
+    Get-ChildItem $dir -File | Where-Object { $_.Extension -match $pat } | ForEach-Object { AddFile $_.FullName ($pair[0] + "/" + $_.Name) }
+  }
+}
 $arc.Dispose(); $fs.Dispose()
 $bytes = [IO.File]::ReadAllBytes((Join-Path $love "love.exe")) + [IO.File]::ReadAllBytes($zip)
 

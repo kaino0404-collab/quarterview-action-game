@@ -130,10 +130,25 @@ local function play(name, var, vol)
   if AUTO then return end
   local s = sfx[name]
   if not s then return end
+  if type(s) == "table" then s = s[rnd(1, #s)] end   -- 같은 소리 변형이 여럿이면 그중 하나
   local c = s:clone()
   c:setPitch(1 + (rnd() - .5) * (var or .2))
   c:setVolume(vol or 1)
   c:play()
+end
+-- 검사 효과음 (힉스필드 Mirelo SFX, 2026-11-23): sfx/blade_swing1·2 (휘두르기), blade_hit1·2 (타격), blade_spin (회전베기), blade_slam (내려찍기 착지)
+--   이름 끝 숫자는 같은 소리의 변형 → sfx.blade_swing = { 두 개 } 로 묶고 play 가 하나를 고른다. 파일이 없으면 예전 합성음 그대로
+SFXF = { hitT = -1 }
+function SFXF.load()
+  for _, n in ipairs({ "blade_swing1", "blade_swing2", "blade_hit1", "blade_hit2", "blade_spin", "blade_slam" }) do
+    local ok, s = pcall(love.audio.newSource, "sfx/" .. n .. ".mp3", "static")
+    if ok then
+      local base = n:gsub("%d$", "")
+      sfx[base] = sfx[base] or {}
+      table.insert(sfx[base], s)
+      print("효과음 읽음: sfx/" .. n .. ".mp3")
+    end
+  end
 end
 
 -------------------------------------------------------------------------------
@@ -478,7 +493,12 @@ local function hitEnemy(e, dmg, dx, dy, kb, stop, crit)
   burst(e.x, e.y, 1, 4, { 1, .85, .6 }, 4, 2.5, .25)
   if stop and stop > 0 then hitStop(stop) end
   addShake(crit and .25 or .12)
-  play(crit and "heavy" or "hit")
+  if player and player.style.id == "blade" and sfx.blade_hit then
+    -- 검사 타격음: 한 번에 여러 마리를 쳐도 소리는 .03초에 한 번만 (겹치면 찢어지는 소리)
+    if realTime - SFXF.hitT > .03 then SFXF.hitT = realTime; play("blade_hit", .12, crit and 1 or .85) end
+  else
+    play(crit and "heavy" or "hit")
+  end
   if e.hp <= 0 then killEnemy(e) end
 end
 
@@ -886,7 +906,7 @@ STYLES = {
           fx[#fx + 1] = { kind = "ring", x = p.x, y = p.y, r = LEAP.r + .3, t = 0, dur = .35, col = { .7, .9, 1 } }
           burst(p.x, p.y, .1, 16, { .6, .5, .35 }, 4, 5, .45)
           addShake(.5)
-          play("heavy", .1, .8)
+          if sfx.blade_slam then play("blade_slam", .06, 1) else play("heavy", .1, .8) end
           p.atkCd = max(p.atkCd, .15)
         end
       end
@@ -896,7 +916,7 @@ STYLES = {
         if s.spin then
           -- 회전베기: 제자리에서 한 바퀴 돌며 주위를 전부 벤다
           -- 3타 전 텀(s.t 가 음수인 동안): 준비 자세로 멈췄다가, 0 이 되는 순간 휙 돈다 (잽잽훅)
-          if s.t >= 0 and not s.went then s.went = true; play("swing", .25, 1)
+          if s.t >= 0 and not s.went then s.went = true; if sfx.blade_spin then play("blade_spin", .06, 1) else play("swing", .25, 1) end
             local L = BLADE.spinLunge * BLADE.lungeK(p, s.dir)   -- 훅: 돌며 파고듦
             p.kx, p.ky = p.kx + cos(s.dir) * L, p.ky + sin(s.dir) * L
           end
@@ -927,7 +947,9 @@ STYLES = {
           local L = BLADE.lunge * BLADE.lungeK(p, dir)
           p.kx, p.ky = p.kx + cos(dir) * L, p.ky + sin(dir) * L
         end
-        if not spin then play("swing", .25, .8) end   -- 회전베기 소리는 텀이 끝나고 돌 때
+        if not spin then   -- (회전베기 소리는 텀이 끝나고 돌 때)
+          if sfx.blade_swing then play("blade_swing", .1, .9) else play("swing", .25, .8) end
+        end
       end
     end,
     -- 우클릭: 클릭한 곳(최대 LEAP.max m)까지 점프해서 내려찍기. 높은 벽 앞에서 멈추고, 벽 안이면 그 앞 빈 땅에 내린다
@@ -943,7 +965,7 @@ STYLES = {
           h = LEAP.h + dd * .12, dir = a, dir0 = a, pad = true, dist = d0 }
         p.cdR = LEAP.cd
         p.face = a
-        play("dash", .1, .8); play("swing", .15, .7)
+        play("dash", .1, .8); if sfx.blade_swing then play("blade_swing", .05, .6) else play("swing", .15, .7) end
       elseif b == 2 and p.cdR <= 0 and canAct(p) and not p.sw and not p.leap then
         local mx, my = mouseWorld(0)
         local dx, dy = mx - p.x, my - p.y
@@ -962,7 +984,7 @@ STYLES = {
           h = LEAP.h + dd * .12, dir = atan2(ny, nx) }
         p.cdR = LEAP.cd
         p.face = p.leap.dir
-        play("dash", .1, .8); play("swing", .15, .7)
+        play("dash", .1, .8); if sfx.blade_swing then play("blade_swing", .05, .6) else play("swing", .15, .7) end
       end
     end,
     -- 검기 머리(칼)가 간 각도. 그림(SPR.slash)과 판정(sweepHit)이 같은 값을 쓴다
@@ -1004,6 +1026,9 @@ STYLES = {
             if hit then
               s.hitSet[e] = true
               s.nHit = (s.nHit or 0) + 1
+              -- 맞은 자리에 노란 타격 불꽃 (fx/hit_spark.png, drawEffects 의 "spark")
+              fx[#fx + 1] = { kind = "spark", x = e.x - dx / max(d, .01) * e.r * .5, y = e.y - dy / max(d, .01) * e.r * .5,
+                z = .9 * e.T.size, t = 0, dur = .2, size = crit and 120 or 85, rot = rnd() * 6.28 }
               local nx, ny = norm(dx, dy)
               local first = s.nHit == 1
               local st = BLADE.stop and first
@@ -2472,6 +2497,17 @@ local SPR = {
   swordZ = 1.0,                             -- 그림 속 칼 높이 (m): 검기를 이 높이에 그린다 (예전 .45 = 허리 아래)
 }
 function SPR.load()
+  -- 검기·타격 이펙트 그림 (fx/, 코드로 만든 그림: scratchpad Fx.cs) — 없으면 예전 도형 검기
+  local okT, tr = pcall(lg.newImage, "fx/slash_trail.png")
+  if okT then
+    tr:setFilter("linear", "linear")
+    SPR.fxTrail = tr
+    SPR.fxMesh = lg.newMesh(2 * (22 + 1), "strip", "stream")
+    SPR.fxMesh:setTexture(tr)
+    print("이펙트 읽음: fx/slash_trail.png")
+  end
+  local okS, sp = pcall(lg.newImage, "fx/hit_spark.png")
+  if okS then sp:setFilter("linear", "linear"); SPR.fxSpark = sp; print("이펙트 읽음: fx/hit_spark.png") end
   local ok, img = pcall(lg.newImage, "sprite/blade_walk.png")
   if not ok then return end
   img:setFilter("linear", "linear")
@@ -2523,22 +2559,36 @@ function SPR.slash(p, al)
     pts[#pts + 1] = { ox, oy, ix, iy, v }
   end
   lg.setBlendMode("add")
-  for i = 1, N do
-    local q0, q1 = pts[i], pts[i + 1]
-    lg.setColor(.55, .8, 1, al * fade * (.12 + .5 * q1[5]))
-    lg.polygon("fill", q0[1], q0[2], q1[1], q1[2], q1[3], q1[4], q0[3], q0[4])
+  if SPR.fxMesh then
+    -- 검기 그림(fx/slash_trail.png)을 초승달 모양에 입힌다: 그림 가로 = 꼬리(흐림) → 머리(밝은 노랑), 세로 = 바깥 날 → 안쪽
+    --   (2026-11-23 유저 "검기는 노란색으로 밝게 빛나지만 지나간 흔적은 흐려지는 것", 예전 하늘색 도형)
+    local vs = {}
+    for i = 1, N + 1 do
+      local q = pts[i]
+      vs[#vs + 1] = { q[1], q[2], q[5], 0, 1, 1, 1, 1 }
+      vs[#vs + 1] = { q[3], q[4], q[5], 1, 1, 1, 1, 1 }
+    end
+    SPR.fxMesh:setVertices(vs)
+    lg.setColor(1, 1, 1, al * fade)
+    lg.draw(SPR.fxMesh)
+    lg.setColor(1, 1, 1, al * fade * .45)    -- 한 번 더 겹쳐서 더 밝게 빛나게
+    lg.draw(SPR.fxMesh)
+  else
+    for i = 1, N do
+      local q0, q1 = pts[i], pts[i + 1]
+      lg.setColor(.55, .8, 1, al * fade * (.12 + .5 * q1[5]))
+      lg.polygon("fill", q0[1], q0[2], q1[1], q1[2], q1[3], q1[4], q0[3], q0[4])
+    end
   end
-  local line = {}
-  for i = 1, N + 1 do line[#line + 1] = pts[i][1]; line[#line + 1] = pts[i][2] end
-  lg.setColor(.9, .97, 1, al * fade * .9)
-  lg.setLineWidth(2.5)
-  lg.line(line)
-  -- 머리(지금 칼이 있는 곳): 손에서 바깥 끝까지 밝은 한 줄
+  -- 머리(지금 칼이 있는 곳): 손에서 바깥 끝까지 밝은 노란 한 줄
   if u < 1 or s.spin then
     local hx, hy = proj(p.x + cos(head) * .3, p.y + sin(head) * .3, z)
     local tx, ty = proj(p.x + cos(head) * R, p.y + sin(head) * R, z)
-    lg.setColor(1, 1, 1, al * fade)
-    lg.setLineWidth(3)
+    lg.setColor(1, .9, .45, al * fade * .7)
+    lg.setLineWidth(5)
+    lg.line(hx, hy, tx, ty)
+    lg.setColor(1, 1, .9, al * fade)
+    lg.setLineWidth(2)
     lg.line(hx, hy, tx, ty)
   end
   lg.setBlendMode("alpha")
@@ -2990,6 +3040,13 @@ local function drawEffects()
         local r1 = (i % 2 == 0) and r or r * .6
         lg.line(sx + cos(a) * r * .3, sy + sin(a) * r * .3, sx + cos(a) * r1, sy + sin(a) * r1)
       end
+    elseif f.kind == "spark" and SPR.fxSpark then
+      -- 검사 타격 불꽃 (fx/hit_spark.png): 확 커졌다가 사라짐, 살짝 돈다
+      local sx, sy = proj(f.x, f.y, f.z)
+      local img = SPR.fxSpark
+      local sc = f.size * (.55 + .7 * (1 - (1 - k) ^ 3)) / img:getWidth()
+      lg.setColor(1, 1, 1, (1 - k) ^ 1.5)
+      lg.draw(img, sx, sy, f.rot + k * .6, sc, sc, img:getWidth() / 2, img:getHeight() / 2)
     end
   end
   -- 거너 광선
@@ -3222,6 +3279,7 @@ function love.load(args)
   fontData = loadFontData()
   makeFonts()
   makeSounds()
+  SFXF.load()                               -- 검사 효과음 파일 (sfx/blade_*.mp3)
   loadBgTextures()
   SPR.load()
   SPR.loadEnemies()
