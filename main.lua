@@ -530,13 +530,13 @@ local launchEnemy
 local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 약 4m 날아간다)
 local SPIN_R = 2.1                      -- 검사 3타 회전베기 반경 (m)
 local BLADE_BLOCK_CHIP = .3             -- 칼로 막기: 막아도 받는 피해 비율 (30%)
-BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .3, preMove = 1, atkMove = .4,
-  lunge = 10, spinLunge = 8, gapCd = .4 }  -- (지역 변수 200개 한도 때문에 전역 표)
+BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .24, preMove = 1, atkMove = .4,
+  lunge = 10, spinLunge = 8, gapCd = .33 }  -- (지역 변수 200개 한도 때문에 전역 표)
 -- stop: 검사 공격 히트스톱 켜기 (2026-11-23 유저 "일단 빼 보자" → false. 켜면 휘두르기·회전·내려찍기 첫 타에서 한 번 멈춤)
 -- spinPre: 3타 회전베기 전 텀 (잽잽훅 박자, 2026-11-23 유저). 이 동안 준비 자세로 멈췄다가 돈다
 -- preMove: 그 텀 동안 이동 속도 배율 (유저: "텀 때 이동이 안 된다" → x.25 에서 x1, 도는 동안은 x.25 그대로)
 -- atkMove: 가로베기 중 이동 배율 (x1 → 다시 x.4, 대신 공격마다 파고드는 전진 lunge 10 = 약 1.1m, 예전 6 = 약 .67m)
--- gapCd: 1·2타 다음 공격까지 .27 → .4초, spinPre .2 → .3초 (유저: 잽잽훅이 빨라 한 대 한 대 느껴지게). 회전베기도 돌 때 spinLunge 8 만큼 파고듦
+-- gapCd: 1·2타 다음 공격까지 .27 → .4 → .33초, spinPre .2 → .3 → .24초 (유저: "빨라" 했다가 "너무 느려진 듯" → 중간). 회전베기도 돌 때 spinLunge 8 만큼 파고듦
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3 }
