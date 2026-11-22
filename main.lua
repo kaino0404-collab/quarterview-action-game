@@ -530,9 +530,10 @@ local launchEnemy
 local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 약 4m 날아간다)
 local SPIN_R = 2.1                      -- 검사 3타 회전베기 반경 (m)
 local BLADE_BLOCK_CHIP = .3             -- 칼로 막기: 막아도 받는 피해 비율 (30%)
-BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .2 }  -- (지역 변수 200개 한도 때문에 전역 표)
+BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .2, preMove = 1 }  -- (지역 변수 200개 한도 때문에 전역 표)
 -- stop: 검사 공격 히트스톱 켜기 (2026-11-23 유저 "일단 빼 보자" → false. 켜면 휘두르기·회전·내려찍기 첫 타에서 한 번 멈춤)
 -- spinPre: 3타 회전베기 전 텀 (잽잽훅 박자, 2026-11-23 유저). 이 동안 준비 자세로 멈췄다가 돈다
+-- preMove: 그 텀 동안 이동 속도 배율 (유저: "텀 때 이동이 안 된다" → x.25 에서 x1, 도는 동안은 x.25 그대로)
 -- 검사 우클릭 점프 내려찍기: 최대 거리 7m, 시간 .42초 + 1m 당 .03초, 높이 1.1m + 1m 당 .12m,
 -- 꼭대기 = 시간의 70%, 내려앉는 곳 반경 2.3m 에 30 피해·넉백 12·히트스톱 12, 쿨 3초, 떠 있는 동안 무적
 LEAP = { max = 7, dur = .42, h = 1.1, top = .7, r = 2.3, dmg = 30, kb = 12, stop = 12, cd = 3 }
@@ -857,7 +858,11 @@ STYLES = {
         end
       end
     end,
-    speedMul = function(p) return p.leap and 0 or (p.sw and (p.sw.spin and .25 or .4) or 1) end,
+    speedMul = function(p)
+      if p.leap then return 0 end
+      if p.sw and p.sw.spin and p.sw.t < 0 then return BLADE.preMove end   -- 3타 전 텀: 걸어서 다가갈 수 있게
+      return p.sw and (p.sw.spin and .25 or .4) or 1
+    end,
     cdMax = LEAP.cd, rName = "내려찍기",
     pose = function(p, o)
       if p.blocking then o.crouch = 7 end
