@@ -325,23 +325,28 @@ end
 --   패드를 만지면 패드 모드(조준을 스틱으로), 마우스를 움직이면 마우스 모드로 돌아간다
 PAD = { js = nil, active = false, aim = 0, dist = 4, rt = false, sel = 1, dead = .25, turnSpd = 12 }
 -- turnSpd: 패드 조준이 도는 속도 (라디안/초, 12 = 반 바퀴 약 .26초) — 2026-11-23 유저 "패드로 부드럽게 회전"
-function PAD.axis(name)
-  if not PAD.js then return 0 end
-  local v = PAD.js:getGamepadAxis(name)
-  return abs(v) > PAD.dead and v or 0
+-- 스틱 하나 (side = "left" / "right") 의 x, y. 데드존은 두 축을 합친 기울기로 본다 (원형 데드존).
+--   예전엔 축마다 따로 잘라서(|x| < .25 → 0) 위·아래·좌·우 근처에서 각도가 자석처럼 붙었다 (유저: "8방향에서 자석처럼 붙는다")
+function PAD.stick(side)
+  if not PAD.js then return 0, 0 end
+  local x, y = PAD.js:getGamepadAxis(side .. "x"), PAD.js:getGamepadAxis(side .. "y")
+  local m = math.sqrt(x * x + y * y)
+  if m < PAD.dead then return 0, 0 end
+  local k = min(1, (m - PAD.dead) / (1 - PAD.dead)) / m      -- 데드존 밖을 0~1 로 다시 펴서 (방향은 그대로)
+  return x * k, y * k
 end
 -- 왼스틱·십자키 방향 (월드 방향으로 바꾼 단위 벡터, 누르고 있나). 화면 세로는 KY 로 눌려 있어서 ÷ KY
 function PAD.dir()
   local j = PAD.js
   if not j then return 0, 0, false end
-  local x, y = PAD.axis("leftx"), PAD.axis("lefty")
+  local x, y = PAD.stick("left")
   if j:isGamepadDown("dpleft") then x = x - 1 end
   if j:isGamepadDown("dpright") then x = x + 1 end
   if j:isGamepadDown("dpup") then y = y - 1 end
   if j:isGamepadDown("dpdown") then y = y + 1 end
   y = y / KY
   local m = math.sqrt(x * x + y * y)
-  if m < .3 then return 0, 0, false end
+  if m < .05 then return 0, 0, false end           -- (스틱은 이미 원형 데드존을 거침, 십자키는 1)
   return x / m, y / m, true
 end
 -- 마우스 버튼 b(1 = 공격, 2 = 스킬)에 해당하는 패드 버튼이 눌려 있나
@@ -1324,13 +1329,13 @@ local function updatePlayer(dt)
   -- 패드 조준: 오른쪽 스틱을 기울이면 그 방향 (기울인 만큼 멀리), 놓으면 걷는 방향(왼스틱·십자키), 서 있으면 마지막 방향
   --   조준은 바로 튀지 않고 초당 PAD.turnSpd 라디안으로 부드럽게 돈다 (그림은 8방향이어도 공격·검기는 그 사이 각도로도 나감)
   if PAD.js and not AUTO then
-    local rx, ry = PAD.axis("rightx"), PAD.axis("righty")
-    local lx, ly = PAD.axis("leftx"), PAD.axis("lefty")
+    local rx, ry = PAD.stick("right")
+    local lx, ly = PAD.stick("left")
     local rm = len(rx, ry)
     local want
-    if rm > .3 then
+    if rm > .05 then
       PAD.active = true
-      want, PAD.dist = atan2(ry * (1 / KY), rx), 1.5 + 5.5 * min(1, (rm - .3) / .6)
+      want, PAD.dist = atan2(ry * (1 / KY), rx), 1.5 + 5.5 * min(1, rm)
     elseif PAD.active then
       local nx, ny, held = PAD.dir()
       if held then want, PAD.dist = atan2(ny, nx), 4 end
@@ -1338,7 +1343,7 @@ local function updatePlayer(dt)
     if want then PAD.aim = turn(PAD.aim, want, PAD.turnSpd * dt) end
     if lx ~= 0 or ly ~= 0 then PAD.active = true end
     -- 오른스틱으로 조준하는 동안엔 몸도 조준 쪽으로 부드럽게 돈다 (걸어도 조준 쪽을 봄)
-    PAD.aiming = rm > .3
+    PAD.aiming = rm > .05
     if PAD.aiming and not p.sw and not p.leap and not p.dash then p.face = turn(p.face, PAD.aim, PAD.turnSpd * dt) end
   else
     PAD.aiming = false
@@ -1355,7 +1360,8 @@ local function updatePlayer(dt)
     -- 패드: 왼쪽 스틱 + 십자키
     if PAD.js and not AUTO then
       local j = PAD.js
-      ix, iy = ix + PAD.axis("leftx"), iy + PAD.axis("lefty")
+      local sx, sy = PAD.stick("left")
+      ix, iy = ix + sx, iy + sy
       if j:isGamepadDown("dpleft") then ix = ix - 1 end
       if j:isGamepadDown("dpright") then ix = ix + 1 end
       if j:isGamepadDown("dpup") then iy = iy - 1 end
@@ -3236,6 +3242,12 @@ local function autoStep(dt)
     PAD.js = { isGamepad = function() return true end, getGamepadAxis = function() return 0 end, isGamepadDown = function() return false end }
     PAD.active, PAD.aim = true, .4
     player.sw, player.atkCd, player.comboT = nil, 0, 0
+    -- 원형 데드존 확인: 아래에서 약 12도 비낀 기울기(x .2, y .95)가 그대로 나오나 (예전 축별 데드존이면 x 가 0 이 돼서 아래로 붙음)
+    local js = PAD.js
+    PAD.js = { getGamepadAxis = function(_, n) return n == "rightx" and .2 or (n == "righty" and .95 or 0) end }
+    local tx, ty = PAD.stick("right")
+    print(("[자동테스트] 패드 스틱: 기울인 각도 %.1f도 → 읽은 각도 %.1f도 (예전 방식이면 90.0도로 붙음)"):format(math.deg(atan2(.95, .2)), math.deg(atan2(ty, tx))))
+    PAD.js = js
   end
   if A.styleT >= 25.3 and A.styleT < 25.9 and not A.padSw then A.mouse[1] = true end   -- 적이 없어도 한 번 벤다
   if A.styleT >= 25.3 and A.styleT < 25.9 and player.sw and not A.padSw then
