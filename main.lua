@@ -385,8 +385,8 @@ local function mouseDown(b)
   end
   return love.mouse.isDown(b)
 end
-local function screenToWorld(gx, gy, z)
-  return (gx - W / 2) / S + cam.x, ((gy - H / 2) / S + (z or 0) * KZ) / KY + cam.y
+local function screenToWorld(gx, gy, z)   -- (카메라 확대 CAMZ 만큼 나눔)
+  return (gx - W / 2) / (S * CAMZ) + cam.x, ((gy - H / 2) / (S * CAMZ) + (z or 0) * KZ) / KY + cam.y
 end
 local function mouseWorld(z)
   -- 패드 모드: 캐릭터에서 조준 방향으로 PAD.dist 만큼 떨어진 곳을 "마우스 지점"으로 쓴다
@@ -397,7 +397,7 @@ local function mouseWorld(z)
 end
 local function worldToGame(x, y, z)
   local sx, sy = proj(x, y, z)
-  return sx - cam.x * S + W / 2, sy - cam.y * KY * S + H / 2
+  return (sx - cam.x * S) * CAMZ + W / 2, (sy - cam.y * KY * S) * CAMZ + H / 2
 end
 
 -------------------------------------------------------------------------------
@@ -2130,9 +2130,9 @@ local function updateCamera(dt)
   end
   local k = 1 - math.exp(-dt * 7)
   -- 세로는 고정: 들판 맨 앞(y = MAPH + 1)이 화면 아래 20px 에 오게 → 위쪽 절반은 늘 하늘·나무 뒷배경 (옆모습 들판)
-  ty = MAPH + 1 - (H / 2 - 20) / (KY * S)
+  ty = MAPH + 1 - (H / 2 - 20) / (KY * S * CAMZ)
   -- 가로는 맵 왼쪽·오른쪽 끝 너머(빈 곳)가 안 보이게 가둠
-  local half = W / 2 / S
+  local half = W / 2 / (S * CAMZ)
   tx = max(1 + half, min(MAPW + 1 - half, tx))
   cam.x, cam.y = lerp(cam.x, tx, k), ty
   shake = max(0, shake - dt * 1.8)
@@ -2144,7 +2144,7 @@ local function newGame()
   enemies, projs, corpses, pts, texts, fx, zones, spawns, pickups = {}, {}, {}, {}, {}, {}, {}, {}, {}
   wave, kills, waveQueue, spawnT, breakT = 0, 0, {}, 0, 2
   banner.text, banner.sub, banner.t = STYLES[styleIdx].name, STYLES[styleIdx].tag, 2
-  cam.x, cam.y = player.x, MAPH + 1 - (H / 2 - 20) / (KY * S)
+  cam.x, cam.y = player.x, MAPH + 1 - (H / 2 - 20) / (KY * S * CAMZ)
   flowTx, flowTy = nil, nil
   shake, freeze, slowT, gameTime = 0, 0, 0, 0
   buildFlow(floor(player.x), floor(player.y))
@@ -2212,8 +2212,12 @@ end
 -------------------------------------------------------------------------------
 -- 그리기
 -------------------------------------------------------------------------------
+-- 카메라 확대 (2026-11-24 유저 "카메라가 조금 더 들어가서 크게 보였으면, 조금만"): 1 → 1.15, 화면 가운데 기준
+CAMZ = 1.15
 local function camTransform(shx, shy)
-  lg.translate(floor(W / 2 - cam.x * S + (shx or 0)), floor(H / 2 - cam.y * KY * S + (shy or 0)))
+  lg.translate(floor(W / 2 + (shx or 0)), floor(H / 2 + (shy or 0)))
+  lg.scale(CAMZ)
+  lg.translate(-cam.x * S, -cam.y * KY * S)
 end
 local function groundCircle(mode, x, y, r, seg)
   local sx, sy = proj(x, y, 0)
@@ -2385,7 +2389,7 @@ local function drawGround()
     -- 해는 뒷배경에서 오려 내 한 번만, 화면 오른쪽 위에 고정 (아주 멀리 있는 것처럼 카메라를 따라감) — 유저 "해 하나로"
     local left = floor(((cam.x - 20) * S) / (iw * sc)) * iw * sc
     for xx = left, (cam.x + 20) * S, iw * sc do lg.draw(BACK.img, xx, by - ih * sc, 0, sc, sc) end
-    if BACK.sun then lg.draw(BACK.sun, cam.x * S + W / 2 - 200, by - ih * sc + 110, 0, sc, sc) end   -- (뒷배경 위에 그려야 보임)
+    if BACK.sun then lg.draw(BACK.sun, cam.x * S + (W / 2 - 200) / CAMZ, by - ih * sc + 110, 0, sc, sc) end   -- (뒷배경 위에 그려야 보임)
   end
   if bgtex.floor then
     -- 질감 바닥: 얼룩·격자 없이 그림 그대로
