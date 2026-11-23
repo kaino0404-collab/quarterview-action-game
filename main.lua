@@ -296,6 +296,7 @@ local ACCENT = {
 
 local TYPES = {
   -- 이동 속도 약 25% 줄임 (2026-11-23 유저 "적들의 이동 속도를 줄여"): 칼잡이 3.1 → 2.3, 총잡이 2.7 → 2.0, 돌격병 2.2 → 1.65
+  -- (그 뒤 "적과 나의 이동 속도를 똑같이" → 쫓아갈 때는 내 캐릭터 속도를 씀, 아래 speed 는 지금 안 씀)
   sword = { name = "칼잡이", hp = 40, speed = 2.3, r = .35, size = 1, col = { .78, .2, .17 }, weapon = "esword",
     range = 1.55, windup = .5, cd = 1.3, dmg = 10, mass = 1, stagger = .3 },
   gun = { name = "총잡이", hp = 28, speed = 2.0, r = .35, size = .95, col = { .72, .26, .2 }, weapon = "rifle",
@@ -1658,15 +1659,17 @@ local function updateEnemy(e, dt)
   if e.stun > 0 then
     e.stun = e.stun - dt
   elseif e.state == "chase" then
+    -- 적 이동 속도 = 지금 내 캐릭터 이동 속도 (2026-11-23 유저 "적과 나의 이동 속도를 똑같이", 예전엔 종류마다 TYPES.speed)
+    local espd = p.speed
     if e.kind == "sword" then
-      if d > T.range * .8 then mvx, mvy = chaseDir(e, d); spd = T.speed
+      if d > T.range * .8 then mvx, mvy = chaseDir(e, d); spd = espd
       elseif e.cd <= 0 then e.state, e.t, e.aim, e.combo = "windup", T.windup, toP, (rnd() < .5) and 1 or 0 end
       e.face = turn(e.face, spd > 0 and atan2(mvy, mvx) or toP, dt * 9)
     elseif e.kind == "gun" then
       local see = d < 11 and los(e.x, e.y, p.x, p.y, 1.1)
-      if not see or d > 8.5 then mvx, mvy = chaseDir(e, d); spd = T.speed
-      elseif d < 4.5 then mvx, mvy = norm(-dx, -dy); spd = T.speed * .9
-      else mvx, mvy = norm(-dy * e.strafe, dx * e.strafe); spd = T.speed * .45 end
+      if not see or d > 8.5 then mvx, mvy = chaseDir(e, d); spd = espd
+      elseif d < 4.5 then mvx, mvy = norm(-dx, -dy); spd = espd * .9
+      else mvx, mvy = norm(-dy * e.strafe, dx * e.strafe); spd = espd * .45 end
       if see and d < 9.5 and e.cd <= 0 then e.state, e.t, e.aim = "windup", T.windup, toP end
       e.face = turn(e.face, toP, dt * 8)
     else
@@ -1675,7 +1678,7 @@ local function updateEnemy(e, dt)
       elseif d < 7 and d > 2.4 and e.cd <= 0 and los(e.x, e.y, p.x, p.y, .3) then
         e.state, e.t, e.aim = "windup", T.windup, toP
       else
-        mvx, mvy = chaseDir(e, d); spd = T.speed
+        mvx, mvy = chaseDir(e, d); spd = espd
       end
       e.face = turn(e.face, toP, dt * 5)
     end
