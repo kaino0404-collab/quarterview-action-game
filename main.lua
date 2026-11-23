@@ -312,6 +312,7 @@ local function newPlayer(idx)
   return {
     style = st, x = MAPW / 2 + .5, y = 12, z = 0, r = .35, face = pi / 2, aim = pi / 2,
     hp = st.hp, maxhp = st.hp, speed = st.speed,
+    stam = STAM.max, stamRest = 0, stamFail = 0,             -- 기력 (검사만 씀)
     inv = 0, stagger = 0, kx = 0, ky = 0, flash = 0, walk = 0, moving = false,
     dash = nil, dashCd = 0, vault = nil, cdR = 0, atkCd = 0,
     -- 스타일별
@@ -597,7 +598,12 @@ local SUPER_SPEED = 15                  -- 슈퍼맨 펀치 돌진 속도 (m/s, 
 local SPIN_R = 2.1                      -- 검사 3타 회전베기 반경 (m)
 local BLADE_BLOCK_CHIP = .3             -- 칼로 막기: 막아도 받는 피해 비율 (30%)
 BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .15, preMove = 1, atkMove = .4,
-  lunge = 10, spinLunge = 8, gapCd = .33, fwdCut = .7 }  -- (지역 변수 200개 한도 때문에 전역 표)
+  lunge = 10, spinLunge = 8, gapCd = .33, fwdCut = 1 }  -- (지역 변수 200개 한도 때문에 전역 표)
+-- 검사 기력 (2026-11-23 유저 "피 게이지 아래 기력 게이지, 칼을 휘두를 때마다 쭉쭉 닳고, 조금 쉬면 회복, 모자라면 못 휘두름"):
+--   최대 100, 가로베기 22, 회전베기 30 (한 바퀴 콤보 74 → 4~5번 휘두르면 바닥), 안 휘두르고 .6초 쉬면 초당 45 씩 회복 (빈 데서 꽉 차기 약 2.8초)
+--   내려찍기(우클릭)는 기력 안 씀 (쿨 3초)
+STAM = { max = 100, slash = 22, spin = 30, delay = .6, regen = 45 }
+-- fwdCut .7 → 1 (2026-11-23 유저 "앞으로 가면서 공격하면 더 빨라지는데", 걸음 3.5 로 느려져 더 티 남): 정면으로 걸으며 베면 파고들기 0
 -- 파고들기 힘 배율: 공격 방향으로 걸어가며 베면 걷는 힘 + 파고드는 힘이 겹쳐 너무 빨라진다 (유저: "앞으로 가면서 때리면 너무 가속")
 --   → 누르는 방향이 공격 방향과 같을수록 줄인다: 정면으로 걸으면 x(1 - fwdCut) = x.3, 옆이면 x1, 뒤로 걸으면 x1, 서 있으면 x1
 function BLADE.lungeK(p, dir)
@@ -934,8 +940,20 @@ STYLES = {
           if s.t >= s.dur then p.sw = nil end
         end
       end
+      -- 기력: 휘두를 때마다 닳고, 안 휘두르고 STAM.delay 초 쉬면 초당 STAM.regen 씩 찬다
+      p.stamRest = (p.stamRest or 0) + dt
+      if p.stamRest > STAM.delay then p.stam = min(STAM.max, p.stam + STAM.regen * dt) end
+      p.stamFail = max(0, (p.stamFail or 0) - dt)
+      local canSwing = true
       if mouseDown(1) and not p.sw and not p.blocking and p.atkCd <= 0 and canAct(p) then
+        local nextCombo = (p.comboT > 0) and (p.combo % 3 + 1) or 1
+        local cost = (nextCombo == 3) and STAM.spin or STAM.slash
+        if p.stam < cost then canSwing = false; p.stamFail = .35 end   -- 기력이 모자라면 못 휘두름 (게이지가 빨갛게 깜빡)
+      end
+      if canSwing and mouseDown(1) and not p.sw and not p.blocking and p.atkCd <= 0 and canAct(p) then
         p.combo = (p.comboT > 0) and (p.combo % 3 + 1) or 1
+        p.stam = p.stam - ((p.combo == 3) and STAM.spin or STAM.slash)
+        p.stamRest = 0
         p.comboT = BLADE.gapCd + .35                    -- 다음 타를 이어 누를 수 있는 시간 (쿨보다 .35초 길게)
         local spin = p.combo == 3
         local dir = autoTarget(p, p.aim, 3.2, .6)       -- 전방 자동 조준
@@ -3080,6 +3098,12 @@ local function drawBars()
     local gx, gy = worldToGame(p.x, p.y, p.z + 2.55)
     lg.setColor(0, 0, 0, .6); lg.rectangle("fill", gx - 21, gy - 1, 42, 6)
     lg.setColor(.3, .95, .4); lg.rectangle("fill", gx - 20, gy, 40 * p.hp / p.maxhp, 4)
+    -- 기력 (검사): 체력 바로 아래 노란 줄, 모자라서 못 휘두르면 빨갛게 깜빡
+    if p.style.id == "blade" then
+      local fail = (p.stamFail or 0) > 0 and floor(realTime * 16) % 2 == 0
+      lg.setColor(0, 0, 0, .6); lg.rectangle("fill", gx - 21, gy + 5, 42, 4)
+      lg.setColor(fail and { 1, .25, .2 } or { 1, .82, .2 }); lg.rectangle("fill", gx - 20, gy + 6, 40 * max(0, p.stam) / STAM.max, 2)
+    end
     -- 게이지 (모으기 / 시전)
     local g = p.style.gauge and p.style.gauge(p)
     if g then
@@ -3173,9 +3197,17 @@ local function drawHUD()
   -- 체력 / 쿨타임
   local bw = 260
   local bx = W - bw - 16
-  lg.setColor(0, 0, 0, .55); lg.rectangle("fill", bx - 3, H - 34, bw + 6, 20, 4)
-  lg.setColor(.3, .9, .4); lg.rectangle("fill", bx, H - 31, bw * p.hp / p.maxhp, 14, 3)
-  lg.setColor(1, 1, 1); txt(floor(p.hp) .. " / " .. p.maxhp, bx, H - 32, fontS, "center", bw)
+  local hy = (st.id == "blade") and H - 44 or H - 34       -- 검사는 아래에 기력 게이지가 있어서 체력을 조금 위로
+  lg.setColor(0, 0, 0, .55); lg.rectangle("fill", bx - 3, hy, bw + 6, 20, 4)
+  lg.setColor(.3, .9, .4); lg.rectangle("fill", bx, hy + 3, bw * p.hp / p.maxhp, 14, 3)
+  lg.setColor(1, 1, 1); txt(floor(p.hp) .. " / " .. p.maxhp, bx, hy + 2, fontS, "center", bw)
+  if st.id == "blade" then
+    -- 기력 게이지 (체력 아래, 노랑): 휘두를 때마다 닳고 쉬면 참, 모자라서 못 휘두르면 빨갛게 깜빡
+    local fail = (p.stamFail or 0) > 0 and floor(realTime * 16) % 2 == 0
+    lg.setColor(0, 0, 0, .55); lg.rectangle("fill", bx - 3, H - 22, bw + 6, 12, 3)
+    lg.setColor(fail and { 1, .25, .2 } or { 1, .82, .2 }); lg.rectangle("fill", bx, H - 20, bw * max(0, p.stam) / STAM.max, 8, 2)
+    lg.setColor(1, 1, 1, .8); txt("기력", bx - 34, H - 25, fontS)
+  end
   cdIcon(W - 150, H - 82, "Spc", "덤블링", max(0, p.dashCd) / .7)
   if st.rName then cdIcon(W - 80, H - 82, "우", st.rName, st.cdMax and p.cdR / st.cdMax or 0) end
   lg.setColor(.7, .7, .7); txt("1~" .. #STYLES .. " 캐릭터 교체   Tab 목록   R 체력 채우기(개발자)   Esc 일시정지", W - 460, 10, fontS, "right", 448)
@@ -3338,6 +3370,11 @@ local function autoStep(dt)
     if player.leap and player.leap.t > player.leap.dur * .85 and not A.leapShot then A.leapShot = true; lg.captureScreenshot("auto_blade_leap.png") end
     if A.wasLeap and not player.leap then A.leaps = (A.leaps or 0) + 1; print(("[자동테스트] 점프 내려찍기 착지 %d번째, 위치 %.1f, %.1f"):format(A.leaps, player.x, player.y)) end
     A.wasLeap = player.leap ~= nil
+    -- 기력: 바닥나서 못 휘두른 순간 한 번 출력 + 스크린샷
+    if (player.stamFail or 0) > .3 and not A.stamShot then
+      A.stamShot = true; lg.captureScreenshot("auto_blade_stamina.png")
+      print(("[자동테스트] 기력 %.0f 로 모자라 못 휘두름 (가로베기 %d, 회전베기 %d 필요)"):format(player.stam, STAM.slash, STAM.spin))
+    end
     -- 곰 동작 그림 확인용 스크린샷 (몽둥이 들기 중간, 돌진 준비 중간, 돌진 중)
     for _, e in ipairs(enemies) do
       if e.kind == "brute" and not e.dead then
