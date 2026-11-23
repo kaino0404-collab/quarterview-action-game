@@ -2510,6 +2510,7 @@ local SPR = {
   row = { E = 3, SE = 2, S = 1, SW = 8, W = 7, NW = 6, N = 5, NE = 4 },
   order = { "E", "SE", "S", "SW", "W", "NW", "N", "NE" },  -- 각도 0 부터 45도씩 (y 가 아래)
   walk = 2.7,                               -- p.walk 1 당 걷기 프레임 수 (보통 걸음 약 34장/초, 유저: 아장아장 3배 빠르게)
+  runRate = 1.4,                            -- 달리기(오른쪽) p.walk 1 당 프레임 수: 이동 3.5 면 p.walk 초당 8.4 → 약 12장/초
   -- 공격 (sprite/blade_attack.png): 칸 200x130, 2칸(준비, 휘두르기) x 4줄(S, E, N, W), 발 = (100, 126)
   -- 원본은 컨셉/검사_공격/. W 는 E 를, N 휘두르기는 N 준비를 좌우로 뒤집은 것.
   atk = nil, aq = nil, aw = 200, ah = 130, afx = 100, afy = 126,
@@ -2540,6 +2541,14 @@ function SPR.load()
   end
   SPR.img, SPR.q = img, q
   print("검사 스프라이트 읽음: sprite/blade_walk.png")
+  -- PixelLab 오른쪽 달리기 (컨셉/픽셀랩/검사_달리기_오른쪽/, 8프레임 1280x160). 서 있는 그림과 같은 배율 (키 105px)
+  local okR, rimg = pcall(lg.newImage, "sprite/blade_run_e.png")
+  if okR then
+    rimg:setFilter("linear", "linear")
+    SPR.run, SPR.runQ = rimg, {}
+    for c = 1, 8 do SPR.runQ[c] = lg.newQuad((c - 1) * 160, 0, 160, 160, rimg:getDimensions()) end
+    print("검사 달리기 읽음: sprite/blade_run_e.png")
+  end
   local ok2, ai = pcall(lg.newImage, "sprite/blade_attack.png")
   if ok2 then
     ai:setFilter("linear", "linear")
@@ -2635,6 +2644,11 @@ function SPR.draw(p, al)
     local ac = ((sw.spin and sw.t >= 0) or (not sw.spin and sw.t >= sw.dur * SPR.wind)) and 2 or 1   -- 회전베기 전 텀엔 준비 칸
     if sw.side == -1 and not sw.spin then ac = 3 - ac end
     lg.draw(SPR.atk, SPR.aq[ar][ac], 0, 0, 0, s, s, SPR.afx, SPR.afy)
+  elseif SPR.run and p.moving and row == SPR.row.E then
+    -- 오른쪽으로 걸을 때만 PixelLab 달리기 8프레임 (sprite/blade_run_e.png, 칸 160x160, 발 (80, 137))
+    --   (2026-11-23 유저 "그쪽 방향 달리기만 게임 안에서 보고 싶어", 나머지 방향은 예전 걷기)
+    local rc = floor(p.walk * SPR.runRate) % 8 + 1
+    lg.draw(SPR.run, SPR.runQ[rc], 0, 0, 0, s, s, 80, 137)
   else
     lg.draw(SPR.img, SPR.q[row][col], 0, 0, 0, s, s, SPR.fx, SPR.fy)
   end
@@ -3402,6 +3416,15 @@ local function autoStep(dt)
     newGame(); state = "play"
   end
   if A.styleT >= 12 and A.styleT - dt < 12 then lg.captureScreenshot("auto_" .. STYLES[styleIdx].id .. ".png") end
+  -- 검사 오른쪽 달리기 확인: 29~30초 동안 오른쪽(D)만 누르고 공격 안 함 → 달리는 중 스크린샷
+  if SPR.run and A.styleT >= 29 and A.styleT < 30.2 then
+    A.keys, A.dirT, A.mouse[1], A.mouse[2] = { d = true }, 1, false, false
+    if A.styleT >= 29.8 and not A.runShot and player.moving then
+      A.runShot = true; lg.captureScreenshot("auto_blade_run.png")
+      print(("[자동테스트] 오른쪽 달리기: 그림 줄 %s, 프레임 %d/8"):format(tostring(SPR.row[SPR.order[floor(player.face / (pi / 4) + .5) % 8 + 1]] == SPR.row.E),
+        floor(player.walk * SPR.runRate) % 8 + 1))
+    end
+  end
   -- 개발자 버튼 기능도 한 번씩 (무적 켜고 끄기, 적 생성, 적 제거)
   if A.styleT >= 20 and A.styleT - dt < 20 then DEV.run("god"); DEV.run("spawn"); print("[자동테스트] 개발자: 무적 켬 + 적 생성") end
   if A.styleT >= 22 and A.styleT - dt < 22 then lg.captureScreenshot("auto_dev.png") end
