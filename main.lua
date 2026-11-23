@@ -2644,11 +2644,12 @@ function SPR.draw(p, al)
     local ac = ((sw.spin and sw.t >= 0) or (not sw.spin and sw.t >= sw.dur * SPR.wind)) and 2 or 1   -- 회전베기 전 텀엔 준비 칸
     if sw.side == -1 and not sw.spin then ac = 3 - ac end
     lg.draw(SPR.atk, SPR.aq[ar][ac], 0, 0, 0, s, s, SPR.afx, SPR.afy)
-  elseif SPR.run and p.moving and row == SPR.row.E then
-    -- 오른쪽으로 걸을 때만 PixelLab 달리기 8프레임 (sprite/blade_run_e.png, 칸 160x160, 발 (80, 137))
-    --   (2026-11-23 유저 "그쪽 방향 달리기만 게임 안에서 보고 싶어", 나머지 방향은 예전 걷기)
+  elseif SPR.run and p.moving and (row == SPR.row.E or row == SPR.row.W) then
+    -- 오른쪽·왼쪽으로 걸을 때 PixelLab 달리기 8프레임 (sprite/blade_run_e.png, 칸 160x160, 발 (80, 137))
+    --   (2026-11-23 유저 "그쪽 방향 달리기만 게임 안에서", "반대쪽 방향은 대칭으로": 왼쪽은 좌우로 뒤집어 그림, 칼이 왼손으로 보임)
     local rc = floor(p.walk * SPR.runRate) % 8 + 1
-    lg.draw(SPR.run, SPR.runQ[rc], 0, 0, 0, s, s, 80, 137)
+    local flip = (row == SPR.row.W) and -1 or 1
+    lg.draw(SPR.run, SPR.runQ[rc], 0, 0, 0, s * flip, s, 80, 137)
   else
     lg.draw(SPR.img, SPR.q[row][col], 0, 0, 0, s, s, SPR.fx, SPR.fy)
   end
@@ -3423,6 +3424,14 @@ local function autoStep(dt)
       A.runShot = true; lg.captureScreenshot("auto_blade_run.png")
       print(("[자동테스트] 오른쪽 달리기: 그림 줄 %s, 프레임 %d/8"):format(tostring(SPR.row[SPR.order[floor(player.face / (pi / 4) + .5) % 8 + 1]] == SPR.row.E),
         floor(player.walk * SPR.runRate) % 8 + 1))
+    end
+  end
+  -- 왼쪽 달리기 (오른쪽을 뒤집은 그림) 확인: 30.2~31.4초 동안 왼쪽(A)만
+  if SPR.run and A.styleT >= 30.2 and A.styleT < 31.4 then
+    A.keys, A.dirT, A.mouse[1], A.mouse[2] = { a = true }, 1, false, false
+    if A.styleT >= 31 and not A.runShotW and player.moving then
+      A.runShotW = true; lg.captureScreenshot("auto_blade_run_w.png")
+      print(("[자동테스트] 왼쪽 달리기(뒤집음): 그림 줄 %s"):format(tostring(SPR.row[SPR.order[floor(player.face / (pi / 4) + .5) % 8 + 1]] == SPR.row.W)))
     end
   end
   -- 개발자 버튼 기능도 한 번씩 (무적 켜고 끄기, 적 생성, 적 제거)
