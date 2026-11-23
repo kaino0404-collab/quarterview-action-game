@@ -3353,6 +3353,9 @@ function love.load(args)
   newGame()
   -- 실행하면 스타일 고르기 화면 없이 바로 검사로 싸움 시작 (Tab·숫자키로 다른 캐릭터)
   state, inGame = "play", true
+  -- 실행하면 적이 안 나옴 (2026-11-23 유저 "엔진 시작하면 적들 안 나오게 일단"): 웨이브 멈춤으로 시작, 왼쪽 위 '적 생성' 버튼을 누르면 다시 나옴
+  --   (자동 테스트는 적이 있어야 해서 그대로)
+  if not AUTO then DEV.stop = true end
   PAD.sel = styleIdx
 end
 
