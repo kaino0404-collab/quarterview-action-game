@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>검사 달리기 미리보기</title>
+<style>
+  body { margin: 0; background: #2b3a22; color: #eee; font-family: "Malgun Gothic", sans-serif; text-align: center; }
+  #stage { margin: 24px auto; width: 640px; height: 320px; background: #6fa83a; border-radius: 10px; position: relative; overflow: hidden; image-rendering: pixelated; }
+  #hero { position: absolute; top: 0; left: 0; width: 320px; height: 320px; image-rendering: pixelated; }
+  button { font-size: 15px; margin: 4px; padding: 6px 14px; }
+</style>
+</head>
+<body>
+<h3>공룡 검사 — 오른쪽 달리기 (PixelLab, 8프레임)</h3>
+<div id="stage"><img id="hero" src="0.png"></div>
+<div>
+  속도 <button onclick="setFps(6)">느리게 (6)</button><button onclick="setFps(10)">보통 (10)</button><button onclick="setFps(14)">빠르게 (14)</button>
+  <button onclick="move = !move">앞으로 이동 켬/끔</button>
+</div>
+<p id="info"></p>
+<script>
+  const frames = [...Array(8).keys()].map(i => { const im = new Image(); im.src = i + ".png"; return im; });
+  const hero = document.getElementById("hero"), info = document.getElementById("info");
+  let fps = 10, f = 0, x = 160, move = true, last = 0, acc = 0;
+  function setFps(v) { fps = v; }
+  function tick(t) {
+    const dt = last ? (t - last) / 1000 : 0; last = t; acc += dt;
+    if (acc >= 1 / fps) { acc = 0; f = (f + 1) % 8; hero.src = frames[f].src; }
+    if (move) { x += dt * 120; if (x > 640) x = -320; } else x = 160;
+    hero.style.left = x + "px";
+    info.textContent = "프레임 " + (f + 1) + " / 8   ·   초당 " + fps + "장   ·   그림 160x160 을 2배로 보여 줌";
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>
