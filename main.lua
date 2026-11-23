@@ -296,7 +296,7 @@ local ACCENT = {
 
 local TYPES = {
   -- 이동 속도 약 25% 줄임 (2026-11-23 유저 "적들의 이동 속도를 줄여"): 칼잡이 3.1 → 2.3, 총잡이 2.7 → 2.0, 돌격병 2.2 → 1.65
-  -- (그 뒤 "적과 나의 이동 속도를 똑같이" → 쫓아갈 때는 내 캐릭터 속도를 씀, 아래 speed 는 지금 안 씀)
+  -- (그 뒤 "적과 나의 이동 속도를 똑같이" = 내가 적 속도에 맞추기 → 검사 이동 속도 5.2 → 칼잡이와 같은 2.3)
   sword = { name = "칼잡이", hp = 40, speed = 2.3, r = .35, size = 1, col = { .78, .2, .17 }, weapon = "esword",
     range = 1.55, windup = .5, cd = 1.3, dmg = 10, mass = 1, stagger = .3 },
   gun = { name = "총잡이", hp = 28, speed = 2.0, r = .35, size = .95, col = { .72, .26, .2 }, weapon = "rifle",
@@ -853,7 +853,7 @@ STYLES = {
   },
   -- 2 검사 -----------------------------------------------------------------
   {
-    id = "blade", name = "검사", tag = "리얼타임 액션", hp = 120, speed = 5.2,
+    id = "blade", name = "검사", tag = "리얼타임 액션", hp = 120, speed = 2.3,   -- 이동 5.2 → 2.3 (칼잡이와 같게, 유저 2026-11-23 "적의 움직임 속도에 나를 맞추라")
     desc = { "좌클릭  3연격 — 벨 때마다 파고든다, 3타는 회전베기", "공격 중 마우스로 방향 조절 · 앞쪽 적 자동 조준", "우클릭  점프 내려찍기 — 클릭한 곳(최대 7m)으로 뛰어올라", "내려앉으며 둘레를 전부 친다 (떠 있는 동안 무적)" },
     blockChip = BLADE_BLOCK_CHIP, noPerfect = true,   -- 막아도 체력이 조금 닳는다 (완벽한 막기 없음)
     update = function(p, dt)
@@ -1659,8 +1659,8 @@ local function updateEnemy(e, dt)
   if e.stun > 0 then
     e.stun = e.stun - dt
   elseif e.state == "chase" then
-    -- 적 이동 속도 = 지금 내 캐릭터 이동 속도 (2026-11-23 유저 "적과 나의 이동 속도를 똑같이", 예전엔 종류마다 TYPES.speed)
-    local espd = p.speed
+    -- 적 이동 속도 = 종류마다 TYPES.speed (잠깐 내 속도로 맞췄다가 되돌림 — 유저 뜻은 "내가 적 속도에 맞추기")
+    local espd = T.speed
     if e.kind == "sword" then
       if d > T.range * .8 then mvx, mvy = chaseDir(e, d); spd = espd
       elseif e.cd <= 0 then e.state, e.t, e.aim, e.combo = "windup", T.windup, toP, (rnd() < .5) and 1 or 0 end
