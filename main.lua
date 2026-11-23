@@ -2511,6 +2511,7 @@ local SPR = {
   order = { "E", "SE", "S", "SW", "W", "NW", "N", "NE" },  -- 각도 0 부터 45도씩 (y 가 아래)
   walk = 2.7,                               -- p.walk 1 당 걷기 프레임 수 (보통 걸음 약 34장/초, 유저: 아장아장 3배 빠르게)
   runRate = 1.4,                            -- 달리기(오른쪽) p.walk 1 당 프레임 수: 이동 3.5 면 p.walk 초당 8.4 → 약 12장/초
+  idleFps = 8,                              -- 전투자세 숨쉬기(오른쪽·왼쪽 서 있을 때) 초당 프레임 (8장 = 한 번 들썩 1초)
   -- 공격 (sprite/blade_attack.png): 칸 200x130, 2칸(준비, 휘두르기) x 4줄(S, E, N, W), 발 = (100, 126)
   -- 원본은 컨셉/검사_공격/. W 는 E 를, N 휘두르기는 N 준비를 좌우로 뒤집은 것.
   atk = nil, aq = nil, aw = 200, ah = 130, afx = 100, afy = 126,
@@ -2548,6 +2549,14 @@ function SPR.load()
     SPR.run, SPR.runQ = rimg, {}
     for c = 1, 8 do SPR.runQ[c] = lg.newQuad((c - 1) * 160, 0, 160, 160, rimg:getDimensions()) end
     print("검사 달리기 읽음: sprite/blade_run_e.png")
+  end
+  -- PixelLab 오른쪽 전투자세 숨쉬기 (컨셉/픽셀랩/검사_전투자세숨쉬기_오른쪽/, 8프레임 1280x160)
+  local okI, iimg = pcall(lg.newImage, "sprite/blade_idle_e.png")
+  if okI then
+    iimg:setFilter("linear", "linear")
+    SPR.idle, SPR.idleQ = iimg, {}
+    for c = 1, 8 do SPR.idleQ[c] = lg.newQuad((c - 1) * 160, 0, 160, 160, iimg:getDimensions()) end
+    print("검사 전투자세 숨쉬기 읽음: sprite/blade_idle_e.png")
   end
   local ok2, ai = pcall(lg.newImage, "sprite/blade_attack.png")
   if ok2 then
@@ -2650,6 +2659,12 @@ function SPR.draw(p, al)
     local rc = floor(p.walk * SPR.runRate) % 8 + 1
     local flip = (row == SPR.row.W) and -1 or 1
     lg.draw(SPR.run, SPR.runQ[rc], 0, 0, 0, s * flip, s, 80, 137)
+  elseif SPR.idle and not p.moving and (row == SPR.row.E or row == SPR.row.W) then
+    -- 오른쪽·왼쪽을 보고 서 있을 때 PixelLab 전투자세 숨쉬기 8프레임 (sprite/blade_idle_e.png, 칸 160x160, 발 (82, 135))
+    --   다리 벌리고 칼 뒤로 늘어뜨리고 상체 숙여 앞을 봄, 위아래로 들썩 (2026-11-23 유저 "넣어 줘 반대쪽도": 왼쪽은 좌우로 뒤집음)
+    local ic = floor(realTime * SPR.idleFps) % 8 + 1
+    local flip = (row == SPR.row.W) and -1 or 1
+    lg.draw(SPR.idle, SPR.idleQ[ic], 0, 0, 0, s * flip, s, 82, 135)
   else
     lg.draw(SPR.img, SPR.q[row][col], 0, 0, 0, s, s, SPR.fx, SPR.fy)
   end
@@ -3424,6 +3439,15 @@ local function autoStep(dt)
       A.runShot = true; lg.captureScreenshot("auto_blade_run.png")
       print(("[자동테스트] 오른쪽 달리기: 그림 줄 %s, 프레임 %d/8"):format(tostring(SPR.row[SPR.order[floor(player.face / (pi / 4) + .5) % 8 + 1]] == SPR.row.E),
         floor(player.walk * SPR.runRate) % 8 + 1))
+    end
+  end
+  -- 왼쪽 보고 서 있기 (전투자세 숨쉬기 뒤집음) 확인: 31.4~32.2초 동안 아무것도 안 누름
+  if SPR.idle and A.styleT >= 31.4 and A.styleT < 32.2 then
+    A.keys, A.dirT, A.mouse[1], A.mouse[2] = {}, 1, false, false
+    if not player.sw and not player.leap then player.face = pi end   -- (적 때문에 방향이 바뀌지 않게 왼쪽으로 고정)
+    if A.styleT >= 32 and not A.idleShot and not player.moving then
+      A.idleShot = true; lg.captureScreenshot("auto_blade_idle_w.png")
+      print(("[자동테스트] 왼쪽 보고 서 있기(전투자세 숨쉬기): 그림 줄 %s"):format(tostring(SPR.row[SPR.order[floor(player.face / (pi / 4) + .5) % 8 + 1]] == SPR.row.W)))
     end
   end
   -- 왼쪽 달리기 (오른쪽을 뒤집은 그림) 확인: 30.2~31.4초 동안 왼쪽(A)만
