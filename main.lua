@@ -3335,9 +3335,11 @@ function love.load(args)
     if n and STYLES[tonumber(n)] then styleIdx = tonumber(n) end
     if a == "--autotest" or a == "--autotest-all" then
       AUTO = { t = 0, keys = {}, mouse = {}, ax = 0, ay = 0, dirT = 0, deaths = 0, styleT = 0, kills = {},
-        all = a == "--autotest-all", perStyle = (a == "--autotest-all") and 25 or 40 }
+        all = a == "--autotest-all", perStyle = (a == "--autotest-all") and 25 or 40, moveOnly = true }
     end
   end
+  -- 기본은 이동만 (공격·스킬·패드 공격 테스트 안 함), --autotest-attack 을 같이 주면 예전처럼 공격까지
+  if AUTO then for _, a in ipairs(args or {}) do if a == "--autotest-attack" then AUTO.moveOnly = false end end end
   io.stdout:setvbuf("no")
   lg.setDefaultFilter("linear", "linear")
   updateView()
@@ -3399,7 +3401,7 @@ local function autoStep(dt)
     -- 가까우면 베고, 조금 떨어진 적에겐 가끔 우클릭 점프 내려찍기
     A.mouse[2] = false
     A.mouse[1] = bd < 2.4
-    if not player.leap and player.cdR <= 0 and bd > 2.5 and bd < 7 and rnd() < .05 then pressBtn(2) end
+    if not A.moveOnly and not player.leap and player.cdR <= 0 and bd > 2.5 and bd < 7 and rnd() < .05 then pressBtn(2) end
     if player.leap and player.leap.t > player.leap.dur * .85 and not A.leapShot then A.leapShot = true; lg.captureScreenshot("auto_blade_leap.png") end
     if A.wasLeap and not player.leap then A.leaps = (A.leaps or 0) + 1; print(("[자동테스트] 점프 내려찍기 착지 %d번째, 위치 %.1f, %.1f"):format(A.leaps, player.x, player.y)) end
     A.wasLeap = player.leap ~= nil
@@ -3426,8 +3428,10 @@ local function autoStep(dt)
   elseif id == "gunner" then A.mouse[1] = (A.t * .4) % 1 < .7
   else A.mouse[1] = bd < 9 end
   if id == "guard" then A.mouse[2] = bd < 3 and (A.t % 2) < 1.2 end
+  -- 이동만 보기 (2026-11-23 유저 "공격하는 테스트도 하지 마, 이동만 볼 거야"): 공격·스킬 버튼을 안 누름. 공격까지 보려면 --autotest-attack
+  if A.moveOnly then A.mouse[1], A.mouse[2] = false, false end
   if A.mouse[1] and not was1 then pressBtn(1) end
-  if rnd() < .008 and id ~= "guard" then pressBtn(2) end
+  if not A.moveOnly and rnd() < .008 and id ~= "guard" then pressBtn(2) end
   if id == "mage" and player.targeting and rnd() < .05 then pressBtn(1) end
   if rnd() < .01 then doDash(player) end
   if state == "dead" then
@@ -3465,6 +3469,8 @@ local function autoStep(dt)
   if A.styleT >= 20 and A.styleT - dt < 20 then DEV.run("god"); DEV.run("spawn"); print("[자동테스트] 개발자: 무적 켬 + 적 생성") end
   if A.styleT >= 22 and A.styleT - dt < 22 then lg.captureScreenshot("auto_dev.png") end
   if A.styleT >= 24 and A.styleT - dt < 24 then DEV.run("kill"); DEV.run("god"); print("[자동테스트] 개발자: 적 제거(웨이브 멈춤) + 무적 끔") end
+  -- (패드 시험은 베기·내려찍기를 하므로 이동만 볼 때는 통째로 건너뜀, --autotest-attack 일 때만)
+  if not A.moveOnly then
   -- 가짜 패드 에임: 8방향 사이 각도(23도, 오른쪽과 오른아래 사이)로 조준하고 베기 → 눈앞 동그라미·검기 각도 확인
   if A.styleT >= 25.3 and A.styleT - dt < 25.3 then
     PAD.js = { isGamepad = function() return true end, getGamepadAxis = function() return 0 end, isGamepadDown = function() return false end }
@@ -3511,6 +3517,7 @@ local function autoStep(dt)
   end
   if A.styleT >= 27 and A.styleT - dt < 27 then love.gamepadpressed(PAD.js, "a"); print("[자동테스트] 패드: A(덤블링) 누름 → 회피 " .. tostring(player.dash ~= nil or player.vault ~= nil)) end
   if A.styleT >= 28 and A.styleT - dt < 28 then PAD.js, PAD.active, PAD.rt = nil, false, false; print("[자동테스트] 패드: 뺌") end
+  end   -- (if not A.moveOnly: 패드 시험 끝)
   if A.styleT >= 29.5 and A.styleT - dt < 29.5 then print("[자동테스트] 멈춘 뒤 5.5초 (예전엔 3.5초면 다음 웨이브): 남은 적 " .. (#enemies + #spawns + #waveQueue)); DEV.run("spawn") end
   -- 맨손: 스트레이트 직후(적이 날아가는 중)를 찍는다
   if player.style.id == "fist" and not A.flyShot then
