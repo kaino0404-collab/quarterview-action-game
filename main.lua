@@ -17,8 +17,9 @@ local Rig = require("rig")
 
 local W, H = 960, 540
 local S = 40                  -- 1m = 40 픽셀
-local KY, KZ = .77, .64       -- 카메라가 내려다보는 각도 (바닥 세로 압축, 높이 압축)
-local MAPW, MAPH = 40, 28
+local KY, KZ = .5, .87        -- 카메라가 내려다보는 각도 (바닥 세로 압축, 높이 압축)
+-- (2026-11-24 유저 "배경을 거의 옆모습으로 기울이고": .77/.64 (약 40도 내려다보기) → .5/.87 (약 30도, 옆에 가깝게))
+local MAPW, MAPH = 40, 12        -- 깊이 28 → 12 (2026-11-24 옆모습 들판: 위쪽은 하늘·나무 배경, 아래쪽은 좁은 들판 띠)
 local LOW = .9                -- 이 높이 이하 벽은 넘을 수 있다
 local SHX, SHY = -.42, .3     -- 그림자 방향 (높이 1m 당)
 Rig.setup(KY, KZ, S / 100)
@@ -172,9 +173,9 @@ local function buildMap()
   -- rect(7, 6, 3, 3, 2.6); rect(32, 6, 3, 3, 2.6); rect(7, 20, 3, 3, 2.6); rect(32, 20, 3, 3, 2.6)
   -- 긴 벽 (가운데가 뚫림)
   -- rect(13, 9, 6, 1, 2.4); rect(23, 9, 6, 1, 2.4); rect(13, 19, 6, 1, 2.4); rect(23, 19, 6, 1, 2.4)
-  -- 넘을 수 있는 낮은 벽
-  rect(11, 12, 1, 5, .7); rect(30, 12, 1, 5, .7); rect(18, 14, 6, 1, .7)
-  rect(3, 14, 4, 1, .7); rect(35, 14, 4, 1, .7); rect(19, 4, 4, 1, .7); rect(19, 24, 4, 1, .7)
+  -- 넘을 수 있는 낮은 벽 (2026-11-24 옆모습 들판으로 깊이를 12 로 줄이면서 일단 뺌 — 빈 들판)
+  -- rect(11, 12, 1, 5, .7); rect(30, 12, 1, 5, .7); rect(18, 14, 6, 1, .7)
+  -- rect(3, 14, 4, 1, .7); rect(35, 14, 4, 1, .7); rect(19, 4, 4, 1, .7); rect(19, 24, 4, 1, .7)
   -- 기둥
   -- rect(16, 5, 1, 1, 3.0); rect(25, 5, 1, 1, 3.0); rect(16, 23, 1, 1, 3.0); rect(25, 23, 1, 1, 3.0)
   -- 바닥 얼룩
@@ -310,7 +311,7 @@ local STYLES
 local function newPlayer(idx)
   local st = STYLES[idx]
   return {
-    style = st, x = MAPW / 2 + .5, y = 12, z = 0, r = .35, face = pi / 2, aim = pi / 2,
+    style = st, x = MAPW / 2 + .5, y = MAPH / 2 + 1, z = 0, r = .35, face = pi / 2, aim = pi / 2,
     hp = st.hp, maxhp = st.hp, speed = st.speed,
     stam = STAM.max, stamRest = 0, stamFail = 0,             -- 기력 (검사만 씀)
     inv = 0, stagger = 0, kx = 0, ky = 0, flash = 0, walk = 0, moving = false,
@@ -2127,7 +2128,12 @@ local function updateCamera(dt)
     tx, ty = tx + lx * .15, ty + ly * .15
   end
   local k = 1 - math.exp(-dt * 7)
-  cam.x, cam.y = lerp(cam.x, tx, k), lerp(cam.y, ty, k)
+  -- 세로는 고정: 들판 맨 앞(y = MAPH + 1)이 화면 아래 20px 에 오게 → 위쪽 절반은 늘 하늘·나무 뒷배경 (옆모습 들판)
+  ty = MAPH + 1 - (H / 2 - 20) / (KY * S)
+  -- 가로는 맵 왼쪽·오른쪽 끝 너머(빈 곳)가 안 보이게 가둠
+  local half = W / 2 / S
+  tx = max(1 + half, min(MAPW + 1 - half, tx))
+  cam.x, cam.y = lerp(cam.x, tx, k), ty
   shake = max(0, shake - dt * 1.8)
 end
 
@@ -2137,7 +2143,7 @@ local function newGame()
   enemies, projs, corpses, pts, texts, fx, zones, spawns, pickups = {}, {}, {}, {}, {}, {}, {}, {}, {}
   wave, kills, waveQueue, spawnT, breakT = 0, 0, {}, 0, 2
   banner.text, banner.sub, banner.t = STYLES[styleIdx].name, STYLES[styleIdx].tag, 2
-  cam.x, cam.y = player.x, player.y
+  cam.x, cam.y = player.x, MAPH + 1 - (H / 2 - 20) / (KY * S)
   flowTx, flowTy = nil, nil
   shake, freeze, slowT, gameTime = 0, 0, 0, 0
   buildFlow(floor(player.x), floor(player.y))
@@ -2240,6 +2246,7 @@ end
 --   그래서 그림 한 장이 덮는 크기(미터) BG_M 은 그림 크기에서 정해진다: 128px 그림 → 6.4m (캐릭터 키 약 1.8m)
 -- (2026-11-23 메이플풍 만화 질감으로 바꿈: 1024 그림을 256px 로 줄여 넣고, 1픽셀 = 화면 1px, 부드럽게(linear). 256px → 6.4m)
 local BG_DOT = 1
+BACK = { img = nil, sky = { 177 / 255, 252 / 255, 243 / 255 } }   -- 옆모습 들판 뒷배경 (전역: 지역 변수 한도)
 local BG_NAMES = { "floor", "wall_top", "wall_front" }
 local BG_M = {}
 local bgtex = {}
@@ -2252,15 +2259,19 @@ local function loadBgTextures()
         local ok, img = pcall(lg.newImage, path)
         if ok then
           img:setWrap("repeat", "repeat")
-          img:setFilter("linear", "linear")
+          -- 128px 이하 = 도트 그림 (그림 1px = 화면 2px, 또렷하게), 그보다 크면 만화 그림 (1px = 1px, 부드럽게)
+          local dot = img:getWidth() <= 128 and 2 or BG_DOT
+          img:setFilter(dot == 2 and "nearest" or "linear", dot == 2 and "nearest" or "linear")
           bgtex[name] = img
-          BG_M[name] = img:getWidth() * BG_DOT / S
+          BG_M[name] = img:getWidth() * dot / S
           print(("배경 질감 읽음: %s (%dpx = %.1fm)"):format(path, img:getWidth(), BG_M[name]))
           break
         end
       end
     end
   end
+  local okB, bimg = pcall(lg.newImage, "bg/backdrop.png")
+  if okB then bimg:setFilter("nearest", "nearest"); BACK.img = bimg; print("뒷배경 읽음: bg/backdrop.png") end
   bgQuad = lg.newQuad(0, 0, 1, 1, 1, 1)
 end
 -- 질감 하나를 화면 사각형(sx, sy 위치)에 그린다. u, v = 그림 위 좌표(미터), w, h = 크기(미터), ppx, ppy = 1미터당 화면 픽셀
@@ -2278,7 +2289,10 @@ local function wallColors(h)
   if h >= 2.9 then return { .56, .52, .44 }, { .1, .09, .08 } end
   return { .74, .67, .55 }, { .12, .1, .09 }
 end
+-- 맵 바깥 테두리 벽(외벽)은 막기만 하고 안 그림 (2026-11-24 옆모습 들판: 뒤쪽 하늘·나무 배경이 보이게)
+function isBorder(x, y) return x == 1 or y == 1 or x == MAPW or y == MAPH end   -- (지역 변수 200개 한도 때문에 전역)
 local function drawCell(x, y)
+  if isBorder(x, y) then return end
   local h = map[y][x]
   local top, front = wallColors(h)
   local x0, x1 = x * S, (x + 1) * S
@@ -2325,7 +2339,7 @@ local function renderShadows(shx, shy)
   for y = max(1, viewY0), min(MAPH, viewY1) do
     for x = max(1, viewX0), min(MAPW, viewX1) do
       local h = map[y][x]
-      if h > 0 then
+      if h > 0 and not isBorder(x, y) then
         local ox, oy = SHX * h, SHY * h
         local c = {}
         for _, q in ipairs({ { x, y }, { x + 1, y }, { x + 1, y + 1 }, { x, y + 1 } }) do
@@ -2352,10 +2366,22 @@ end
 
 local function drawGround()
   -- 맵 바깥: 질감이 있으면(메이플풍 풀밭) 짙은 숲색, 없으면 예전 어두운 올리브
-  if bgtex.floor then lg.setColor(.13, .27, .14) else lg.setColor(.24, .25, .15) end
+  if bgtex.floor then lg.setColor(.2, .4, .18) else lg.setColor(.24, .25, .15) end   -- (맵 바깥: 짙은 풀색)
   lg.rectangle("fill", (cam.x - 40) * S, (cam.y - 40) * KY * S, 80 * S, 80 * KY * S)
   local x0, y0 = proj(1, 1)
   local x1, y1 = proj(MAPW + 1, MAPH + 1)
+  -- 옆모습 들판 뒷배경 (bg/backdrop.png, PixelLab: 하늘·구름·해·나무 줄, 400x178 도트, 1px = 화면 2px):
+  --   맵 뒤쪽 끝(y = 1.8) 에 아래를 맞춰 가로로 이어 그림, 그 위는 하늘색 (2026-11-24 유저 "배경도 이것과 비슷하게 들판으로")
+  if BACK.img then
+    local iw, ih = BACK.img:getDimensions()
+    local bx, by = proj(0, 1.8)
+    local sc = 2
+    lg.setColor(BACK.sky)
+    lg.rectangle("fill", (cam.x - 40) * S, by - ih * sc - 2000, 80 * S, 2000 + 2)
+    lg.setColor(1, 1, 1)
+    local left = floor(((cam.x - 20) * S) / (iw * sc)) * iw * sc
+    for xx = left, (cam.x + 20) * S, iw * sc do lg.draw(BACK.img, xx, by - ih * sc, 0, sc, sc) end
+  end
   if bgtex.floor then
     -- 질감 바닥: 얼룩·격자 없이 그림 그대로
     lg.setColor(1, 1, 1)
@@ -2642,6 +2668,34 @@ function SPR.draw(p, al)
   local s = SPR.px / CS                    -- drawPlayer 가 이미 CS 배로 키워 둠
   if p.flash > 0 then lg.setColor(1, .55, .55, al) else lg.setColor(1, 1, 1, al) end
   local sw = p.sw
+  -- 2방향(왼쪽·오른쪽)만 (2026-11-24 유저 "위·아래로 뛰어갈 때도 그냥 달리기, 대각선도 옆모습, 2방향만 쓸 거야"):
+  --   바라보는 방향의 가로 성분으로 왼/오를 정하고, 거의 위·아래면 마지막 왼/오를 그대로 (p.side)
+  if SPR.run and SPR.idle then
+    local cx = cos(a)
+    if cx > .2 then p.side = 1 elseif cx < -.2 then p.side = -1 end
+    local side = p.side or 1
+    if SPR.atk and (p.leap or (sw and not p.blocking)) then
+      -- 공격·내려찍기: 공격 그림의 오른쪽(E) 줄 / 왼쪽(W) 줄만
+      local ar = (side > 0) and SPR.arow.E or SPR.arow.W
+      local ac
+      if p.leap then ac = (p.leap.t / p.leap.dur >= LEAP.top) and 2 or 1
+      else
+        ac = ((sw.spin and sw.t >= 0) or (not sw.spin and sw.t >= sw.dur * SPR.wind)) and 2 or 1
+        if sw.side == -1 and not sw.spin then ac = 3 - ac end
+      end
+      lg.draw(SPR.atk, SPR.aq[ar][ac], 0, 0, 0, s, s, SPR.afx, SPR.afy)
+    elseif p.moving then
+      -- 어느 쪽으로 움직이든 옆모습 달리기 (왼쪽은 좌우로 뒤집음)
+      local rc = floor(p.walk * SPR.runRate) % 8 + 1
+      lg.draw(SPR.run, SPR.runQ[rc], 0, 0, 0, s * side, s, 80, 137)
+    else
+      -- 서 있으면 전투자세 숨쉬기
+      local ic = floor(realTime * SPR.idleFps) % 8 + 1
+      lg.draw(SPR.idle, SPR.idleQ[ic], 0, 0, 0, s * side, s, 82, 135)
+    end
+    lg.setColor(1, 1, 1, 1)
+    return
+  end
   if SPR.atk and p.leap then
     -- 점프 내려찍기: 올라가는 동안 준비 칸(칼을 뒤로), 꼭대기부터 휘두르기 칸(내려찍음)
     local ar = SPR.arow[SPR.aorder[floor(a / (pi / 2) + .5) % 4 + 1]]
