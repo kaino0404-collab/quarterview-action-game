@@ -603,7 +603,8 @@ BLADE = { half = 1.5, wind = .3, sweep = .22, stop = false, spinPre = .15, preMo
 -- 검사 기력 (2026-11-23 유저 "피 게이지 아래 기력 게이지, 칼을 휘두를 때마다 쭉쭉 닳고, 조금 쉬면 회복, 모자라면 못 휘두름"):
 --   최대 100, 가로베기 22, 회전베기 30 (한 바퀴 콤보 74 → 4~5번 휘두르면 바닥), 안 휘두르고 .6초 쉬면 초당 45 씩 회복 (빈 데서 꽉 차기 약 2.8초)
 --   내려찍기(우클릭)는 기력 안 씀 (쿨 3초)
-STAM = { max = 100, slash = 22, spin = 30, delay = .6, regen = 45 }
+STAM = { on = false, max = 100, slash = 22, spin = 30, delay = .6, regen = 45 }
+-- on = false (2026-11-24 유저 "계속 휘두를 수 있는 원래 버전으로 일단"): 기력 소모·막힘·게이지 모두 끔, true 로 하면 다시 켜짐
 -- fwdCut .7 → 1 (2026-11-23 유저 "앞으로 가면서 공격하면 더 빨라지는데", 걸음 3.5 로 느려져 더 티 남): 정면으로 걸으며 베면 파고들기 0
 -- 파고들기 힘 배율: 공격 방향으로 걸어가며 베면 걷는 힘 + 파고드는 힘이 겹쳐 너무 빨라진다 (유저: "앞으로 가면서 때리면 너무 가속")
 --   → 누르는 방향이 공격 방향과 같을수록 줄인다: 정면으로 걸으면 x(1 - fwdCut) = x.3, 옆이면 x1, 뒤로 걸으면 x1, 서 있으면 x1
@@ -949,7 +950,7 @@ STYLES = {
       if mouseDown(1) and not p.sw and not p.blocking and p.atkCd <= 0 and canAct(p) then
         local nextCombo = (p.comboT > 0) and (p.combo % 3 + 1) or 1
         local cost = (nextCombo == 3) and STAM.spin or STAM.slash
-        if p.stam < cost then canSwing = false; p.stamFail = .35 end   -- 기력이 모자라면 못 휘두름 (게이지가 빨갛게 깜빡)
+        if STAM.on and p.stam < cost then canSwing = false; p.stamFail = .35 end   -- 기력이 모자라면 못 휘두름 (게이지가 빨갛게 깜빡)
       end
       if canSwing and mouseDown(1) and not p.sw and not p.blocking and p.atkCd <= 0 and canAct(p) then
         p.combo = (p.comboT > 0) and (p.combo % 3 + 1) or 1
@@ -3187,7 +3188,7 @@ local function drawBars()
     lg.setColor(0, 0, 0, .6); lg.rectangle("fill", gx - 21, gy - 1, 42, 6)
     lg.setColor(.3, .95, .4); lg.rectangle("fill", gx - 20, gy, 40 * p.hp / p.maxhp, 4)
     -- 기력 (검사): 체력 바로 아래 노란 줄, 모자라서 못 휘두르면 빨갛게 깜빡
-    if p.style.id == "blade" then
+    if p.style.id == "blade" and STAM.on then
       local fail = (p.stamFail or 0) > 0 and floor(realTime * 16) % 2 == 0
       lg.setColor(0, 0, 0, .6); lg.rectangle("fill", gx - 21, gy + 5, 42, 4)
       lg.setColor(fail and { 1, .25, .2 } or { 1, .82, .2 }); lg.rectangle("fill", gx - 20, gy + 6, 40 * max(0, p.stam) / STAM.max, 2)
@@ -3285,11 +3286,11 @@ local function drawHUD()
   -- 체력 / 쿨타임
   local bw = 260
   local bx = W - bw - 16
-  local hy = (st.id == "blade") and H - 44 or H - 34       -- 검사는 아래에 기력 게이지가 있어서 체력을 조금 위로
+  local hy = (st.id == "blade" and STAM.on) and H - 44 or H - 34       -- 검사는 아래에 기력 게이지가 있어서 체력을 조금 위로
   lg.setColor(0, 0, 0, .55); lg.rectangle("fill", bx - 3, hy, bw + 6, 20, 4)
   lg.setColor(.3, .9, .4); lg.rectangle("fill", bx, hy + 3, bw * p.hp / p.maxhp, 14, 3)
   lg.setColor(1, 1, 1); txt(floor(p.hp) .. " / " .. p.maxhp, bx, hy + 2, fontS, "center", bw)
-  if st.id == "blade" then
+  if st.id == "blade" and STAM.on then
     -- 기력 게이지 (체력 아래, 노랑): 휘두를 때마다 닳고 쉬면 참, 모자라서 못 휘두르면 빨갛게 깜빡
     local fail = (p.stamFail or 0) > 0 and floor(realTime * 16) % 2 == 0
     lg.setColor(0, 0, 0, .55); lg.rectangle("fill", bx - 3, H - 22, bw + 6, 12, 3)
