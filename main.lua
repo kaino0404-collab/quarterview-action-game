@@ -2272,6 +2272,8 @@ local function loadBgTextures()
   end
   local okB, bimg = pcall(lg.newImage, "bg/backdrop.png")
   if okB then bimg:setFilter("nearest", "nearest"); BACK.img = bimg; print("뒷배경 읽음: bg/backdrop.png") end
+  local okS, simg = pcall(lg.newImage, "bg/sun.png")
+  if okS then simg:setFilter("nearest", "nearest"); BACK.sun = simg end
   bgQuad = lg.newQuad(0, 0, 1, 1, 1, 1)
 end
 -- 질감 하나를 화면 사각형(sx, sy 위치)에 그린다. u, v = 그림 위 좌표(미터), w, h = 크기(미터), ppx, ppy = 1미터당 화면 픽셀
@@ -2379,8 +2381,10 @@ local function drawGround()
     lg.setColor(BACK.sky)
     lg.rectangle("fill", (cam.x - 40) * S, by - ih * sc - 2000, 80 * S, 2000 + 2)
     lg.setColor(1, 1, 1)
+    -- 해는 뒷배경에서 오려 내 한 번만, 화면 오른쪽 위에 고정 (아주 멀리 있는 것처럼 카메라를 따라감) — 유저 "해 하나로"
     local left = floor(((cam.x - 20) * S) / (iw * sc)) * iw * sc
     for xx = left, (cam.x + 20) * S, iw * sc do lg.draw(BACK.img, xx, by - ih * sc, 0, sc, sc) end
+    if BACK.sun then lg.draw(BACK.sun, cam.x * S + W / 2 - 200, by - ih * sc + 110, 0, sc, sc) end   -- (뒷배경 위에 그려야 보임)
   end
   if bgtex.floor then
     -- 질감 바닥: 얼룩·격자 없이 그림 그대로
