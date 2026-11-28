@@ -1957,7 +1957,20 @@ local function updateCorpses(dt)
   end
 end
 
+-- 단계(스테이지): 단계가 오를수록 적이 더 많이, 더 자주, 더 많이 한꺼번에 나온다 (2026-11-28 유저: "이 배경에서 적들이 나오게, 단계별로 점점 더 많이")
+--   칼잡이 수 = base + per × 단계 (1단계 5 → 2단계 8 → 3단계 11 …), 한 번에 나오는 무리 1 ~ (2 + 단계/2) 마리 (최대 5)
+--   나오는 간격 = max(minGap, gap0 - gapStep × 단계)  (전역 표: main 지역 변수 200개 한도)
+STAGE = { base = 2, per = 3, groupMax = 5, gap0 = 2.0, gapStep = .15, minGap = .5, rest = 3.5, clearShown = false }
+
+-- 들판 양 끝 = 화면 밖 왼쪽·오른쪽에서 걸어 들어온다 (옆모습 들판: 화면 안에서 갑자기 생기지 않게)
 local function findSpawn()
+  local half = W / 2 / (S * (CAMZ or 1))            -- 화면 가로 절반 (m)
+  for _ = 1, 60 do
+    local side = rnd() < .5 and -1 or 1
+    local x = clamp(cam.x + side * (half + 1 + rnd() * 2.5), 2.5, MAPW - 1.5)
+    local y = 2.5 + rnd() * (MAPH - 4)
+    if cellH(x, y) == 0 and len(x - player.x, y - player.y) > 6 then return x, y end
+  end
   for _ = 1, 80 do
     local x, y = rnd(2, MAPW - 1), rnd(2, MAPH - 1)
     local edge = x <= 4 or y <= 4 or x >= MAPW - 3 or y >= MAPH - 3
@@ -1975,7 +1988,8 @@ end
 local function startWave(n)
   wave = n
   waveQueue = {}
-  local s = 3 + n * 2
+  STAGE.clearShown = false
+  local s = STAGE.base + n * STAGE.per             -- 칼잡이: 예전 3 + 2×웨이브 → 2 + 3×단계 (점점 더 많이)
   -- 기대값으로 줄이기: 0.3마리면 30% 확률로 1마리 (내림만 하면 거의 안 나오고, 반올림이면 덜 줄어서)
   local function cut(x) local f = floor(x); return f + ((rnd() < x - f) and 1 or 0) end
   -- 총잡이: 원래 floor(n/2)+1 → 5분의 1 (유저 2026-11-23, 3분의 1 → 5분의 1). 웨이브 2~3 은 40%, 4~5 는 60% 확률로 1마리 …
@@ -1990,7 +2004,7 @@ local function startWave(n)
     waveQueue[i], waveQueue[j] = waveQueue[j], waveQueue[i]
   end
   spawnT = .8
-  banner.text, banner.sub, banner.t = "웨이브 " .. n, (b > 0) and "돌격병이 섞여 있다" or "사방에서 몰려온다", 2.4
+  banner.text, banner.sub, banner.t = n .. "단계", "적 " .. #waveQueue .. "마리" .. ((b > 0) and " · 돌격병이 섞여 있다" or " · 양쪽에서 몰려온다"), 2.4
 end
 
 local function updateWaves(dt)
@@ -2004,7 +2018,9 @@ local function updateWaves(dt)
     if spawnT <= 0 and #enemies < 36 then
       local sx, sy = findSpawn()
       if sx then
-        for _ = 1, min(#waveQueue, rnd(1, 3)) do
+        -- 한 번에 나오는 무리: 단계가 오를수록 커진다 (1단계 1~2, 2단계 1~3, 4단계 1~4 …, 최대 5)
+        local groupMax = min(STAGE.groupMax, 2 + floor(wave / 2))
+        for _ = 1, min(#waveQueue, rnd(1, groupMax)) do
           local kind = table.remove(waveQueue)
           local x, y = sx + (rnd() - .5) * 1.4, sy + (rnd() - .5) * 1.4
           if cellH(x, y) > 0 then x, y = sx, sy end
@@ -2012,11 +2028,15 @@ local function updateWaves(dt)
         end
         play("spawn", .2, .6)
       end
-      spawnT = max(.6, 2.2 - wave * .12)
+      spawnT = max(STAGE.minGap, STAGE.gap0 - wave * STAGE.gapStep)   -- 예전 max(.6, 2.2 - .12×웨이브)
     end
-  elseif #enemies == 0 and #spawns == 0 and not DEV.stop then   -- 개발자 '적 제거' 뒤엔 다음 웨이브 안 옴
+  elseif #enemies == 0 and #spawns == 0 and not DEV.stop then   -- 개발자 '적 제거' 뒤엔 다음 단계 안 옴
+    if wave > 0 and not STAGE.clearShown then
+      STAGE.clearShown = true
+      banner.text, banner.sub, banner.t = wave .. "단계 클리어!", "곧 " .. (wave + 1) .. "단계 — 더 많이 온다", 2.4
+    end
     breakT = breakT - dt
-    if breakT <= 0 then startWave(wave + 1); breakT = 3.5 end
+    if breakT <= 0 then startWave(wave + 1); breakT = STAGE.rest end
   end
 end
 
@@ -3269,8 +3289,8 @@ local function drawHUD()
   -- 웨이브
   lg.setColor(1, 1, 1)
   local left = #enemies + #spawns + #waveQueue
-  txt(DEV.stop and ("웨이브 멈춤 (개발자)   ·   남은 적 " .. left)
-    or (wave > 0 and ("웨이브 " .. wave .. "   ·   남은 적 " .. left) or "준비"), 0, 10, fontM, "center", W)
+  txt(DEV.stop and ("적 멈춤 (개발자)   ·   남은 적 " .. left)
+    or (wave > 0 and (wave .. "단계   ·   남은 적 " .. left) or "준비"), 0, 10, fontM, "center", W)
   lg.setColor(.85, .85, .85); txt("처치 " .. kills, 12, 10, fontS)
   -- 개발자 버튼
   local mgx, mgy = toGame(love.mouse.getPosition())
@@ -3418,9 +3438,9 @@ function love.load(args)
   newGame()
   -- 실행하면 스타일 고르기 화면 없이 바로 검사로 싸움 시작 (Tab·숫자키로 다른 캐릭터)
   state, inGame = "play", true
-  -- 실행하면 적이 안 나옴 (2026-11-23 유저 "엔진 시작하면 적들 안 나오게 일단"): 웨이브 멈춤으로 시작, 왼쪽 위 '적 생성' 버튼을 누르면 다시 나옴
-  --   (자동 테스트는 적이 있어야 해서 그대로)
-  if not AUTO then DEV.stop = true end
+  -- 실행하면 바로 1단계부터 적이 나온다 (2026-11-28 유저 "이 배경에서 적들이 나오게").
+  --   예전(2026-11-23)엔 웨이브 멈춤으로 시작했음. 멈추고 싶으면 왼쪽 위 '적 제거' 버튼.
+  DEV.stop = false
   PAD.sel = styleIdx
 end
 
@@ -3645,7 +3665,7 @@ function love.draw()
     drawBars()
     drawHUD()
     if state == "pause" then drawCenter("일시정지", { "Esc 계속하기", "Tab 스타일 바꾸기", "R 처음부터" })
-    elseif state == "dead" then drawCenter("쓰러졌다", { "웨이브 " .. wave .. "  ·  처치 " .. kills, "", "R 다시 하기   ·   Tab 스타일 바꾸기" }) end
+    elseif state == "dead" then drawCenter("쓰러졌다", { wave .. "단계  ·  처치 " .. kills, "", "R 다시 하기   ·   Tab 스타일 바꾸기" }) end
   end
   lg.setScissor()
   lg.pop()
