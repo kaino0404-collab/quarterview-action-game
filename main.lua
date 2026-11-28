@@ -1679,8 +1679,10 @@ local function updateEnemy(e, dt)
   if e.stun > 0 then
     e.stun = e.stun - dt
   elseif e.state == "chase" then
-    -- 적 이동 속도 = 종류마다 TYPES.speed (잠깐 내 속도로 맞췄다가 되돌림 — 유저 뜻은 "내가 적 속도에 맞추기")
-    local espd = T.speed
+    -- 적 이동 속도 = 내 이동 속도 (2026-11-28 유저 "적 이동속도를 나와 같이"): 칼잡이는 나와 똑같이,
+    --   총잡이·돌격병은 칼잡이와의 원래 비율 그대로 (총잡이 2.0/2.3 ≈ .87배, 덩치 큰 돌격병 1.2/2.3 ≈ .52배)
+    --   내 속도는 고른 스타일 따라 (검사 3.5 → 칼잡이도 3.5)
+    local espd = p.speed * (T.speed / TYPES.sword.speed)
     if e.kind == "sword" then
       if d > T.range * .8 then mvx, mvy = chaseDir(e, d); spd = espd
       elseif e.cd <= 0 then e.state, e.t, e.aim, e.combo = "windup", T.windup, toP, (rnd() < .5) and 1 or 0 end
